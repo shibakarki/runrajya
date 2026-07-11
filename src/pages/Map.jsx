@@ -587,399 +587,331 @@ export default function Map() {
   }
 
   return (
-    <div style={{ height: '100%', width: '100%', position: 'relative' }}>
+    <div className="flex flex-col md:flex-row w-full h-full overflow-hidden bg-[#080810] relative">
 
-      <MapContainer
-        center={CENTER}
-        zoom={10}
-        style={{ position: 'absolute', inset: 0 }}
-        maxBounds={[[27.2, 83.0], [27.9, 83.8]]}
-        maxBoundsViscosity={1.0}
-        minZoom={7} // Zoom limits strictly preserved
-        maxZoom={14} // Zoom limits strictly preserved
-      >
-        <TileLayer
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          attribution='&copy; OpenStreetMap contributors'
-          updateWhenIdle={true}
-          updateWhenZooming={false}
-          keepBuffer={1}
-          bounds={[[27.3301647, 83.2042469], [27.7672862, 83.6343973]]}
-        />
-        <GeoJSON data={rupandehiBoundary} style={borderStyle} />
-        <GeoJSON data={mask} style={maskStyle} />
-        <ZoomTracker onZoomChange={setZoom} />
-        
-        {/* Dynamic tracking camera focus locks */}
-        <MapCentering 
-          position={position} 
-          autoCenter={autoCenter} 
-          hasCenteredOnce={hasCenteredOnce} 
-          setHasCenteredOnce={setHasCenteredOnce} 
-        />
-        <MapInteractionTracker setAutoCenter={setAutoCenter} />
+      {/* 1. MAP CANVAS CONSOLE (Desktop: Full-screen, Mobile: Compact Square Panel) */}
+      <div className="w-full h-[45dvh] md:h-full md:flex-1 relative border-b md:border-b-0 md:border-r border-[#1e2042]">
+        <MapContainer
+          center={CENTER}
+          zoom={10}
+          style={{ position: 'absolute', inset: 0 }}
+          maxBounds={[[27.2, 83.0], [27.9, 83.8]]}
+          maxBoundsViscosity={1.0}
+          minZoom={7} // Zoom limits strictly preserved
+          maxZoom={14} // Zoom limits strictly preserved
+        >
+          <TileLayer
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            attribution='&copy; OpenStreetMap contributors'
+            updateWhenIdle={true}
+            updateWhenZooming={false}
+            keepBuffer={1}
+            bounds={[[27.3301647, 83.2042469], [27.7672862, 83.6343973]]}
+          />
+          <GeoJSON data={rupandehiBoundary} style={borderStyle} />
+          <GeoJSON data={mask} style={maskStyle} />
+          <ZoomTracker onZoomChange={setZoom} />
+          
+          {/* Dynamic tracking camera focus locks */}
+          <MapCentering 
+            position={position} 
+            autoCenter={autoCenter} 
+            hasCenteredOnce={hasCenteredOnce} 
+            setHasCenteredOnce={setHasCenteredOnce} 
+          />
+          <MapInteractionTracker setAutoCenter={setAutoCenter} />
 
-        {zoom >= 11 && <ZoneLayer zones={zones} profiles={profiles} />}
-        
-        <GPSHandler
-          position={position}
-          heading={heading} // Compass angle state
-          sessionActive={sessionActive} // Pulse radar trigger
-          zones={zones}
-          userId={profile?.id}
-          userColor={profile?.color}
-          onCapture={handleCapture}
-          sessionId={sessionId}
-          updateZone={updateZone}
-          isOnline={isOnline}
-          queueTrace={queueTrace}
-          queueCapture={queueCapture}
-        />
-      </MapContainer>
+          {zoom >= 11 && <ZoneLayer zones={zones} profiles={profiles} />}
+          
+          <GPSHandler
+            position={position}
+            heading={heading} // Compass angle state
+            sessionActive={sessionActive} // Pulse radar trigger
+            zones={zones}
+            userId={profile?.id}
+            userColor={profile?.color}
+            onCapture={handleCapture}
+            sessionId={sessionId}
+            updateZone={updateZone}
+            isOnline={isOnline}
+            queueTrace={queueTrace}
+            queueCapture={queueCapture}
+          />
+        </MapContainer>
 
-      {/* GLOBAL ALWAYS-VISIBLE STATUS/ERROR BANNER */}
-      {(error || !position) && (
-        <div style={{
-          position: 'absolute',
-          top: sessionActive ? 110 : 12, // Offset downwards if session HUD active, otherwise stay at top
-          left: 12,
-          right: 12,
-          zIndex: 1000,
-          background: error ? 'rgba(220, 38, 38, 0.95)' : 'rgba(15, 16, 32, 0.95)',
-          backdropFilter: 'blur(8px)',
-          borderRadius: 12,
-          padding: '12px 16px',
-          boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
-          border: error ? '1px solid #ef4444' : '1px solid #1e2042',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
-          maxWidth: 320,
-          boxSizing: 'border-box'
-        }}>
-          <span style={{ fontSize: 16, flexShrink: 0 }}>{error ? '❌' : '🛰️'}</span>
-          <span style={{ color: '#e2e8f0', fontSize: 11, fontWeight: 700, lineHeight: '1.4' }}>
-            {error ? error : 'Acquiring high-accuracy GPS signal... Please step outside or check browser location permission.'}
-          </span>
-        </div>
-      )}
-
-      {/* Floating stats — only during session */}
-      {sessionActive && !pocketMode && (
-        <div style={{
-          position: 'absolute', top: 12, left: 12, right: 12, zIndex: 1000,
-          background: 'rgba(15, 16, 32, 0.9)',
-          backdropFilter: 'blur(10px)',
-          WebkitBackdropFilter: 'blur(10px)',
-          border: '1px solid #1e2042',
-          borderRadius: 12,
-          padding: '10px 14px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 6,
-          maxWidth: 320,
-          boxShadow: '0 8px 32px rgba(0,0,0,0.5)'
-        }}>
-
-          {/* GPS status */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <div style={{
-              width: 6, height: 6, borderRadius: '50%',
-              background: error ? '#ef4444' : position ? '#2ed573' : '#ffa502',
-              flexShrink: 0,
-            }} />
-            <span style={{ color: '#94a3b8', fontSize: 10, fontWeight: 500 }}>
-              {error ? error : position ? `GPS ±${Math.round(accuracy || 0)}m` : 'Acquiring GPS...'}
-            </span>
-          </div>
-
-          {/* Online/offline indicator */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <div style={{
-              width: 6, height: 6, borderRadius: '50%',
-              background: isOnline ? '#2ed573' : '#ef4444',
-              flexShrink: 0,
-            }} />
-            <span style={{ color: '#94a3b8', fontSize: 10, fontWeight: 500 }}>
-              {syncing ? 'Syncing...' : isOnline ? 'Online' : `Offline — ${pendingCount} queued`}
-            </span>
-          </div>
-
-          {/* Stats Grid */}
-          {!error && (
-            <div style={{ display: 'flex', gap: 12, marginTop: 4, justifyContent: 'space-between' }}>
-              <div style={{ flex: 1, textAlign: 'center' }}>
-                <div style={{ color: '#64748b', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>
-                  Distance
-                </div>
-                <div style={{ color: 'white', fontSize: 13, fontWeight: 800 }}>
-                  {Math.round(distance)}m
-                </div>
-              </div>
-              <div style={{ width: 1, background: '#1e2042' }} />
-              <div style={{ flex: 1, textAlign: 'center' }}>
-                <div style={{ color: '#64748b', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>
-                  Points
-                </div>
-                <div style={{ color: profile?.color || '#3b82f6', fontSize: 13, fontWeight: 800 }}>
-                  {points}
-                </div>
-              </div>
-              <div style={{ flex: 1, textAlign: 'center' }}>
-                <div style={{ color: '#64748b', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>
-                  Zones
-                </div>
-                <div style={{ color: '#1e90ff', fontSize: 13, fontWeight: 800 }}>
-                  {zonesCount}
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* RECENTER CAMERA / FOLLOW TARGET BUTTON */}
-      {position && !pocketMode && (
-        <button
-          onClick={() => setAutoCenter(prev => !prev)}
-          style={{
+        {/* GLOBAL ALWAYS-VISIBLE STATUS/ERROR BANNER */}
+        {(error || !position) && (
+          <div style={{
             position: 'absolute',
-            bottom: 148, // Placed cleanly above the pocket lock button
-            right: 16,
+            top: 12, // Always positioned cleanly inside the map container
+            left: 12,
+            right: 12,
             zIndex: 1000,
-            background: '#0f1020',
-            border: '1px solid #1e2042',
-            color: autoCenter ? (profile?.color || '#3b82f6') : '#64748b',
-            boxShadow: autoCenter ? `0 0 12px ${(profile?.color || '#3b82f6')}33` : 'none',
-            borderRadius: '50%',
-            width: 48,
-            height: 48,
+            background: error ? 'rgba(220, 38, 38, 0.95)' : 'rgba(15, 16, 32, 0.95)',
+            backdropFilter: 'blur(8px)',
+            borderRadius: 12,
+            padding: '12px 16px',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+            border: error ? '1px solid #ef4444' : '1px solid #1e2042',
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: 20,
-            cursor: 'pointer',
-            transition: 'all 0.15s ease'
-          }}
-          title="Toggle Auto-Recenter Follow"
-        >
-          🧭
-        </button>
-      )}
+            gap: 10,
+            maxWidth: 320,
+            boxSizing: 'border-box'
+          }}>
+            <span style={{ fontSize: 16, flexShrink: 0 }}>{error ? '❌' : '🛰️'}</span>
+            <span style={{ color: '#e2e8f0', fontSize: 11, fontWeight: 700, lineHeight: '1.4' }}>
+              {error ? error : 'Acquiring GPS signal... Please step outside or check browser location permission.'}
+            </span>
+          </div>
+        )}
 
-      {/* LOCK TRIGGER BUTTON */}
-      {sessionActive && !pocketMode && (
-        <button
-          onTouchStart={handleLockStart}
-          onTouchEnd={handleLockEnd}
-          onMouseDown={handleLockStart}
-          onMouseUp={handleLockEnd}
-          onMouseLeave={handleLockEnd}
-          style={{
-            position: 'absolute',
-            bottom: 90,
-            right: 16,
-            zIndex: 1000,
-            background: '#0f1020',
-            border: '1px solid #1e2042',
-            color: '#e2e8f0',
-            borderRadius: '50%',
-            width: 48,
-            height: 48,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: 20,
-            cursor: 'pointer',
-            boxShadow: '0 4px 16px rgba(0,0,0,0.6)',
-            userSelect: 'none',
-            WebkitUserSelect: 'none',
-          }}
-          title="Hold 2s to Lock Screen"
-        >
-          <svg className="absolute inset-0 w-full h-full -rotate-90 pointer-events-none" viewBox="0 0 48 48">
-            <circle
-              cx="24"
-              cy="24"
-              r="22"
-              stroke="rgba(59, 130, 246, 0.1)"
-              strokeWidth="2.5"
-              fill="transparent"
-            />
-            <circle
-              cx="24"
-              cy="24"
-              r="22"
-              stroke="#3b82f6"
-              strokeWidth="2.5"
-              fill="transparent"
-              strokeDasharray={2 * Math.PI * 22}
-              strokeDashoffset={2 * Math.PI * 22 * (1 - lockHoldPercent / 100)}
-              style={{ transition: lockHoldPercent === 0 ? 'none' : 'stroke-dashoffset 0.05s linear' }}
-            />
-          </svg>
-          <span style={{ pointerEvents: 'none' }}>🔒</span>
-        </button>
-      )}
-
-      {/* FULLSCREEN POCKET LOCK */}
-      {pocketMode && (
-        <div style={{
-          position: 'fixed',
-          inset: 0,
-          background: '#000000',
-          zIndex: 99999,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: 24,
-          boxSizing: 'border-box',
-          userSelect: 'none',
-          WebkitUserSelect: 'none',
-        }}>
-          {!showSlider && (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-              <div style={{ textAlign: 'center', marginBottom: 40 }}>
-                <p style={{ color: '#475569', fontSize: 13, fontWeight: 600, margin: '0 0 6px 0', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                  Pocket Mode Active
-                </p>
-                <p style={{ color: '#1e293b', fontSize: 11, margin: 0 }}>
-                  GPS is actively capturing zones in your pocket.
-                </p>
-              </div>
-
-              <button
-                onTouchStart={handleUnlockHoldStart}
-                onTouchEnd={handleUnlockHoldEnd}
-                onMouseDown={handleUnlockHoldStart}
-                onMouseUp={handleUnlockHoldEnd}
-                onMouseLeave={handleUnlockHoldEnd}
-                style={{
-                  width: 96,
-                  height: 96,
-                  borderRadius: '50%',
-                  background: '#050508',
-                  border: '1.5px solid #1e2042',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'pointer',
-                  position: 'relative',
-                  outline: 'none',
-                  color: '#3b82f6',
-                  boxShadow: '0 0 20px rgba(59, 130, 246, 0.02)',
-                }}
-              >
-                <svg className="absolute inset-0 w-full h-full -rotate-90 pointer-events-none" viewBox="0 0 96 96">
-                  <circle
-                    cx="48"
-                    cy="48"
-                    r="44"
-                    stroke="rgba(59, 130, 246, 0.05)"
-                    strokeWidth="3.5"
-                    fill="transparent"
-                  />
-                  <circle
-                    cx="48"
-                    cy="48"
-                    r="44"
-                    stroke="#2563eb"
-                    strokeWidth="3.5"
-                    fill="transparent"
-                    strokeDasharray={2 * Math.PI * 44}
-                    strokeDashoffset={2 * Math.PI * 44 * (1 - unlockHoldPercent / 100)}
-                    style={{ transition: unlockHoldPercent === 0 ? 'none' : 'stroke-dashoffset 0.05s linear' }}
-                  />
-                </svg>
-                <span style={{ fontSize: 24, pointerEvents: 'none', marginBottom: 2 }}>🔓</span>
-                <span style={{ fontSize: 9, fontWeight: 700, pointerEvents: 'none', textTransform: 'uppercase', letterSpacing: '0.02em', color: '#64748b' }}>
-                  Hold 2s
-                </span>
-              </button>
-            </div>
-          )}
-
-          {showSlider && (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-              <div style={{ textAlign: 'center', marginBottom: 32 }}>
-                <p style={{ color: '#ef4444', fontSize: 13, fontWeight: 700, margin: '0 0 4px 0', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  Confirm Unlock
-                </p>
-                <p style={{ color: '#475569', fontSize: 11, margin: 0 }}>
-                  Slide to confirm before revert: <span style={{ color: '#ef4444', fontWeight: 800 }}>{sliderCountdown}s</span>
-                </p>
-              </div>
-
-              <div style={{
-                position: 'relative',
-                width: 260,
-                height: 52,
-                background: '#090a10',
-                border: '1.5px solid #1e2042',
-                borderRadius: 26,
+        {/* DESKTOP-ONLY INTERFACE BUTTONS (Hidden on mobile as they are integrated in the bottom console) */}
+        <div className="hidden md:block">
+          {/* RECENTER CAMERA / FOLLOW TARGET BUTTON */}
+          {position && !pocketMode && (
+            <button
+              onClick={() => setAutoCenter(prev => !prev)}
+              style={{
+                position: 'absolute',
+                bottom: 148,
+                right: 16,
+                zIndex: 1000,
+                background: '#0f1020',
+                border: '1px solid #1e2042',
+                color: autoCenter ? (profile?.color || '#3b82f6') : '#64748b',
+                boxShadow: autoCenter ? `0 0 12px ${(profile?.color || '#3b82f6')}33` : 'none',
+                borderRadius: '50%',
+                width: 48,
+                height: 48,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                overflow: 'hidden',
-                boxShadow: '0 4px 20px rgba(0,0,0,0.8)'
-              }}>
-                <span style={{
-                  color: '#475569',
-                  fontSize: 12,
-                  fontWeight: 700,
-                  pointerEvents: 'none',
-                  position: 'absolute',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.06em',
-                }}>
-                  Slide to Confirm ➔
-                </span>
+                fontSize: 20,
+                cursor: 'pointer',
+                transition: 'all 0.15s ease'
+              }}
+              title="Toggle Auto-Recenter Follow"
+            >
+              🧭
+            </button>
+          )}
 
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={sliderValue}
-                  onChange={handleSliderChange}
-                  onMouseUp={handleSliderRelease}
-                  onTouchEnd={handleSliderRelease}
-                  className="w-full h-full appearance-none bg-transparent cursor-pointer outline-none z-10 accent-blue-600 [&::-webkit-slider-thumb]:w-10 [&::-webkit-slider-thumb]:h-10 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-600 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:shadow-[0_0_12px_rgba(59,130,246,0.5)] [&::-moz-range-thumb]:w-10 [&::-moz-range-thumb]:h-10 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-blue-600 [&::-moz-range-thumb]:border-none"
+          {/* LOCK TRIGGER BUTTON */}
+          {sessionActive && !pocketMode && (
+            <button
+              onTouchStart={handleLockStart}
+              onTouchEnd={handleLockEnd}
+              onMouseDown={handleLockStart}
+              onMouseUp={handleLockEnd}
+              onMouseLeave={handleLockEnd}
+              style={{
+                position: 'absolute',
+                bottom: 90,
+                right: 16,
+                zIndex: 1000,
+                background: '#0f1020',
+                border: '1px solid #1e2042',
+                color: '#e2e8f0',
+                borderRadius: '50%',
+                width: 48,
+                height: 48,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 20,
+                cursor: 'pointer',
+                boxShadow: '0 4px 16px rgba(0,0,0,0.6)',
+                userSelect: 'none',
+                WebkitUserSelect: 'none',
+              }}
+              title="Hold 2s to Lock Screen"
+            >
+              <svg className="absolute inset-0 w-full h-full -rotate-90 pointer-events-none" viewBox="0 0 48 48">
+                <circle
+                  cx="24"
+                  cy="24"
+                  r="22"
+                  stroke="rgba(59, 130, 246, 0.1)"
+                  strokeWidth="2.5"
+                  fill="transparent"
                 />
-              </div>
-            </div>
+                <circle
+                  cx="24"
+                  cy="24"
+                  r="22"
+                  stroke="#3b82f6"
+                  strokeWidth="2.5"
+                  fill="transparent"
+                  strokeDasharray={2 * Math.PI * 22}
+                  strokeDashoffset={2 * Math.PI * 22 * (1 - lockHoldPercent / 100)}
+                  style={{ transition: lockHoldPercent === 0 ? 'none' : 'stroke-dashoffset 0.05s linear' }}
+                />
+              </svg>
+              <span style={{ pointerEvents: 'none' }}>🔒</span>
+            </button>
           )}
         </div>
-      )}
+      </div>
 
-      {/* Session trigger button */}
-      {!pocketMode && (
-        <div style={{
-          position: 'absolute',
-          bottom: 24,
-          left: '50%',
-          transform: 'translateX(-50%)',
-          zIndex: 1000,
-        }}>
-          <button
-            onClick={handleSession}
-            style={{
-              background: sessionActive ? '#dc2626' : 'linear-gradient(135deg, #3b82f6, #1e40af)',
-              color: 'white',
-              fontSize: 14,
-              fontWeight: 800,
-              padding: '12px 32px',
-              borderRadius: 50,
-              border: 'none',
-              cursor: 'pointer',
-              boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
-              whiteSpace: 'nowrap',
-              transition: 'transform 0.1s ease',
-            }}
-          >
-            {sessionActive ? '⏹ End Session' : '▶ Start Session'}
-          </button>
+      {/* 2. MOBILE ATHLETIC COCKPIT CONSOLE (Only visible on screens smaller than md) */}
+      <div className="flex md:hidden flex-col flex-1 bg-[#0f1020] border-t border-[#1e2042] p-5 overflow-y-auto box-border gap-4 select-none relative z-10">
+        {sessionActive ? (
+          <div className="flex flex-col gap-4 animate-[fadeInUp_0.4s_ease-out]">
+            
+            {/* Console Signal & GPS Sync details */}
+            <div className="flex justify-between items-center bg-[#080810] border border-[#1e2042] px-3 py-2.5 rounded-xl text-[10px] font-bold text-[#94a3b8] tracking-wider uppercase">
+              <div className="flex items-center gap-2">
+                <span className="animate-pulse inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500"></span>
+                <span>Signal: {position ? 'LOCK SECURE' : 'CALIBRATING'}</span>
+              </div>
+              <div>
+                {syncing ? 'Syncing...' : isOnline ? '🟢 Online' : `🔴 Offline (${pendingCount})`}
+              </div>
+            </div>
+
+            {/* Glowing Athletic Metrics Dashboard */}
+            <div className="grid grid-cols-3 gap-3">
+              <div className="bg-[#14152a] border border-[#1e2042] rounded-xl p-3 text-center">
+                <div className="text-[10px] font-bold text-[#64748b] tracking-wider uppercase mb-1">Meters</div>
+                <div className="text-xl font-black text-white">{Math.round(distance)}m</div>
+              </div>
+              <div className="bg-[#14152a] border border-[#1e2042] rounded-xl p-3 text-center">
+                <div className="text-[10px] font-bold text-[#64748b] tracking-wider uppercase mb-1">Score</div>
+                <div className="text-xl font-black" style={{ color: profile?.color || '#3b82f6' }}>+{points}</div>
+              </div>
+              <div className="bg-[#14152a] border border-[#1e2042] rounded-xl p-3 text-center">
+                <div className="text-[10px] font-bold text-[#64748b] tracking-wider uppercase mb-1">Grids</div>
+                <div className="text-xl font-black text-[#1e90ff]">{zonesCount}</div>
+              </div>
+            </div>
+
+            {/* Tactical Commands row */}
+            <div className="grid grid-cols-2 gap-3 mt-1">
+              {/* Recenter alignment lock */}
+              <button 
+                onClick={() => setAutoCenter(prev => !prev)}
+                className="py-3 rounded-xl border border-[#1e2042] bg-[#14152a] text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer outline-none"
+                style={{ 
+                  color: autoCenter ? (profile?.color || '#3b82f6') : '#64748b',
+                  borderColor: autoCenter ? `${(profile?.color || '#3b82f6')}33` : '#1e2042'
+                }}
+              >
+                🧭 {autoCenter ? 'Follow: Active' : 'Free Cam'}
+              </button>
+
+              {/* Progress-glowing hold lock trigger */}
+              <button
+                onTouchStart={handleLockStart}
+                onTouchEnd={handleLockEnd}
+                onMouseDown={handleLockStart}
+                onMouseUp={handleLockEnd}
+                onMouseLeave={handleLockEnd}
+                className="py-3 rounded-xl border border-[#1e2042] text-xs font-bold text-white transition-all flex items-center justify-center gap-2 cursor-pointer outline-none select-none relative overflow-hidden"
+                style={{
+                  background: `linear-gradient(to right, rgba(59, 130, 246, 0.15) ${lockHoldPercent}%, #14152a ${lockHoldPercent}%)`
+                }}
+              >
+                🔒 Hold 2s to Lock
+              </button>
+            </div>
+
+          </div>
+        ) : (
+          <div className="flex-1 flex flex-col items-center justify-center text-center p-4">
+            <div className="text-5xl mb-4 animate-[bounce_2s_infinite]">👟</div>
+            <h4 className="text-md font-extrabold text-white mb-2">Conquest Awaiting</h4>
+            <p className="text-[#64748b] text-xs leading-relaxed max-w-[280px] mb-6">
+              Ready to claim your territory? Start an active run session to paint grids and gain faction points around Rupandehi.
+            </p>
+          </div>
+        )}
+        
+        {/* Command Button */}
+        <button
+          onClick={handleSession}
+          className="w-full py-4 mt-auto rounded-xl text-sm font-black text-white bg-gradient-to-r transition-all cursor-pointer border-none shadow-[0_4px_16px_rgba(0,0,0,0.5)] outline-none"
+          style={{
+            background: sessionActive ? '#dc2626' : 'linear-gradient(135deg, #3b82f6, #1e40af)'
+          }}
+        >
+          {sessionActive ? '⏹ End Run Session' : '▶ Begin Run Session'}
+        </button>
+      </div>
+
+      {/* FLOATING STATS HUD (Desktop View Only — Mobile stats are mapped inside the bottom console) */}
+      {sessionActive && !pocketMode && (
+        <div className="hidden md:block">
+          <div style={{
+            position: 'absolute', top: 12, left: 12, right: 12, zIndex: 1000,
+            background: 'rgba(15, 16, 32, 0.9)',
+            backdropFilter: 'blur(10px)',
+            WebkitBackdropFilter: 'blur(10px)',
+            border: '1px solid #1e2042',
+            borderRadius: 12,
+            padding: '10px 14px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 6,
+            maxWidth: 320,
+            boxShadow: '0 8px 32px rgba(0,0,0,0.5)'
+          }}>
+
+            {/* GPS status */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div style={{
+                width: 6, height: 6, borderRadius: '50%',
+                background: error ? '#ef4444' : position ? '#2ed573' : '#ffa502',
+                flexShrink: 0,
+              }} />
+              <span style={{ color: '#94a3b8', fontSize: 10, fontWeight: 500 }}>
+                {error ? error : position ? `GPS ±${Math.round(accuracy || 0)}m` : 'Acquiring GPS...'}
+              </span>
+            </div>
+
+            {/* Online/offline indicator */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div style={{
+                width: 6, height: 6, borderRadius: '50%',
+                background: isOnline ? '#2ed573' : '#ef4444',
+                flexShrink: 0,
+              }} />
+              <span style={{ color: '#94a3b8', fontSize: 10, fontWeight: 500 }}>
+                {syncing ? 'Syncing...' : isOnline ? 'Online' : `Offline — ${pendingCount} queued`}
+              </span>
+            </div>
+
+            {/* Stats Grid */}
+            {!error && (
+              <div style={{ display: 'flex', gap: 12, marginTop: 4, justifyContent: 'space-between' }}>
+                <div style={{ flex: 1, textAlign: 'center' }}>
+                  <div style={{ color: '#64748b', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>
+                    Distance
+                  </div>
+                  <div style={{ color: 'white', fontSize: 13, fontWeight: 800 }}>
+                    {Math.round(distance)}m
+                  </div>
+                </div>
+                <div style={{ width: 1, background: '#1e2042' }} />
+                <div style={{ flex: 1, textAlign: 'center' }}>
+                  <div style={{ color: '#64748b', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>
+                    Points
+                  </div>
+                  <div style={{ color: profile?.color || '#3b82f6', fontSize: 13, fontWeight: 800 }}>
+                    {points}
+                  </div>
+                </div>
+                <div style={{ flex: 1, textAlign: 'center' }}>
+                  <div style={{ color: '#64748b', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>
+                    Zones
+                  </div>
+                  <div style={{ color: '#1e90ff', fontSize: 13, fontWeight: 800 }}>
+                    {zonesCount}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
