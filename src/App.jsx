@@ -99,14 +99,24 @@ export default function App() {
           <button 
             onClick={() => setShowLanding(true)} // Tapping logo returns back to landing page
             style={{
-              width: 26, height: 26, borderRadius: 7,
-              background: 'linear-gradient(135deg, #3b82f6, #1e40af)',
-              border: 'none',
+              width: 28, height: 28, borderRadius: 7,
+              background: 'linear-gradient(135deg, #0f1020, #080810)',
+              border: '1px solid #1e2042',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 13, flexShrink: 0, cursor: 'pointer'
+              flexShrink: 0, cursor: 'pointer', outline: 'none',
+              padding: 0
             }}
           >
-            🏃
+            <img 
+              src="/logo.svg" 
+              alt="Logo" 
+              style={{ 
+                width: 18, 
+                height: 18, 
+                objectFit: 'contain',
+                filter: 'brightness(0) invert(1)' // Inverts black logo to clean white
+              }} 
+            />
           </button>
           <span 
             onClick={() => setShowLanding(true)}

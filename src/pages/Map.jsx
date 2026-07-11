@@ -640,8 +640,8 @@ export default function Map() {
           style={{ position: 'absolute', inset: 0 }}
           maxBounds={[[27.2, 83.0], [27.9, 83.8]]}
           maxBoundsViscosity={1.0}
-          minZoom={10} // Zoom limits strictly preserved
-          maxZoom={17} // Zoom limits strictly preserved
+          minZoom={7} // Zoom limits strictly preserved
+          maxZoom={14} // Zoom limits strictly preserved
         >
           <TileLayer
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -722,8 +722,6 @@ export default function Map() {
                 zIndex: 1000,
                 background: '#0f1020',
                 border: '1px solid #1e2042',
-                color: autoCenter ? (profile?.color || '#3b82f6') : '#64748b',
-                boxShadow: autoCenter ? `0 0 12px ${(profile?.color || '#3b82f6')}33` : 'none',
                 borderRadius: '50%',
                 width: 48,
                 height: 48,
@@ -736,7 +734,18 @@ export default function Map() {
               }}
               title="Toggle Auto-Recenter Follow"
             >
-              🧭
+              <img 
+                src="/logo.svg" // Points directly to public/logo.svg
+                alt="Recenter Map" 
+                style={{ 
+                  width: 24, 
+                  height: 24, 
+                  objectFit: 'contain',
+                  filter: autoCenter 
+                    ? `brightness(0) invert(1) drop-shadow(0 0 4px ${profile?.color || '#3b82f6'})` 
+                    : 'grayscale(100%) opacity(50%)'
+                }} 
+              />
             </button>
           )}
 
@@ -1067,7 +1076,7 @@ export default function Map() {
                 width: 260,
                 height: 52,
                 background: '#090a10',
-                border: '1.5px solid #1e2042',
+                border: '1px solid #1e2042',
                 borderRadius: 26,
                 display: 'flex',
                 alignItems: 'center',

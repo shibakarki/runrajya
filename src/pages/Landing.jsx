@@ -110,7 +110,17 @@ export default function Landing({ user, profile, onGetStarted }) {
       {/* HEADER NAVBAR */}
       <header className="sticky top-0 z-50 flex items-center justify-between px-6 py-4 border-b border-[#334155] bg-[#0f172a]/80 backdrop-blur-md flex-shrink-0">
         <div className="flex items-center gap-2 text-xl font-bold text-[#3b82f6] cursor-pointer" onClick={() => scrollToSection('top')}>
-          🏃 <span className="text-[#f1f5f9]">RunRajya</span>
+          <img 
+            src="/logo.svg" 
+            alt="RunRajya Logo" 
+            style={{
+              width: 32,
+              height: 32,
+              objectFit: 'contain',
+              filter: 'brightness(0) invert(1) drop-shadow(0 4px 12px rgba(59, 130, 246, 0.45))' // High contrast neon-white glow
+            }}
+          />
+          <span className="text-[#f1f5f9]">Run<span className="text-[#3b82f6]">Rajya</span></span>
         </div>
         
         <div className="flex items-center gap-8">
@@ -154,6 +164,28 @@ export default function Landing({ user, profile, onGetStarted }) {
         
         {/* HERO HEADER */}
         <section id="top" className="max-w-5xl mx-auto flex flex-col items-center justify-center text-center relative z-10 animate-[fadeInUp_0.8s_ease-out] mb-12">
+          {/* Neon Logo Emblem */}
+          <div style={{
+            width: 56, height: 56,
+            margin: '0 auto 16px',
+            borderRadius: 16,
+            background: 'linear-gradient(135deg, #0f1020, #080810)',
+            border: '1.5px solid #1e2042',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            boxShadow: '0 8px 30px rgba(59, 130, 246, 0.2)',
+          }}>
+            <img 
+              src="/logo.svg" 
+              alt="RunRajya Emblem" 
+              style={{ 
+                width: 36, 
+                height: 36, 
+                objectFit: 'contain',
+                filter: 'brightness(0) invert(1)' // Inverts dark graphic to white
+              }} 
+            />
+          </div>
+
           <div className="inline-block px-4 py-1.5 bg-[#3b82f6]/10 border border-[#3b82f6] rounded-full text-[#3b82f6] text-xs font-bold mb-6 uppercase tracking-wider">
             📍 Rupandehi District, Nepal
           </div>
