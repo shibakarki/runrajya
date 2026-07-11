@@ -1,0 +1,71 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+* {
+  font-family: 'Inter', -apple-system, sans-serif;
+}
+
+:root {
+  --bg: #080810;
+  --surface: #0f1020;
+  --surface-hover: #151631;
+  --border: #1a1b2e;
+  --border-light: #24253f;
+  --text: #e2e8f0;
+  --text-muted: #64748b;
+  --text-dim: #475569;
+  --accent: #3b82f6;
+  --accent-hover: #2563eb;
+}
+
+/* Pulsing ring for player marker */
+@keyframes leaflet-pulse {
+  0% { transform: scale(1); opacity: 0.6; }
+  50% { transform: scale(1.8); opacity: 0.15; }
+  100% { transform: scale(1); opacity: 0.6; }
+}
+.pulse-ring path {
+  animation: leaflet-pulse 1.8s ease-in-out infinite;
+  transform-origin: center;
+}
+
+/* Page transition */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.page-enter {
+  animation: fade-in 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Skeleton shimmer */
+@keyframes shimmer {
+  0% { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg, #14152a 25%, #1e2042 50%, #14152a 75%);
+  background-size: 400px 100%;
+  animation: shimmer 1.4s ease infinite;
+  border-radius: 6px;
+}
+
+/* Glass effect utility */
+.glass {
+  background: rgba(15, 16, 32, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #24253f; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #2e3050; }

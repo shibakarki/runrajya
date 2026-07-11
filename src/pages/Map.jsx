@@ -1,0 +1,1141 @@
+import { MapContainer, TileLayer, GeoJSON, Rectangle, Marker, useMapEvents, useMap } from 'react-leaflet'
+import { useAuth } from '../context/AuthContext'
+import { useState, useMemo, useEffect, useRef } from 'react'
+import { supabase } from '../lib/supabase'
+import rupandehiBoundary from '../data/rupandehi_boundary.json'
+import { useZones } from '../hooks/useZones'
+import { useGPS } from '../hooks/useGPS'
+import { useOfflineSync } from '../hooks/useOfflineSync'
+import L from 'leaflet'
+
+const CENTER = [27.55, 83.42]
+const REVEAL_RADIUS = 150
+
+function haversine(lat1, lng1, lat2, lng2) {
+  const R = 6371000
+  const dLat = (lat2 - lat1) * Math.PI / 180
+  const dLng = (lng2 - lng1) * Math.PI / 180
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) *
+    Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLng / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
+function buildMask(geoJsonFeature) {
+  const coords = geoJsonFeature.geometry.coordinates[0]
+  const worldRing = [[-90, -180], [-90, 180], [90, 180], [90, -180]]
+  return {
+    type: 'Feature',
+    geometry: {
+      type: 'Polygon',
+      coordinates: [
+        worldRing.map(([lat, lng]) => [lng, lat]),
+        coords
+      ]
+    }
+  }
+}
+
+const borderStyle = {
+  color: '#ffffff', weight: 1.5, opacity: 0.4,
+  fillOpacity: 0, interactive: false,
+}
+
+const maskStyle = {
+  color: 'transparent', fillColor: '#000000',
+  fillOpacity: 0.75, interactive: false, stroke: false,
+}
+
+function ZoneLayer({ zones, profiles }) {
+  return zones
+    .filter(zone => zone.revealed)
+    .map(zone => {
+      const bounds = [[zone.lat_min, zone.lng_min], [zone.lat_max, zone.lng_max]]
+      const owner = profiles[zone.owner_id]
+      const color = owner?.color || '#ffffff'
+      const isCaptured = !!zone.owner_id
+      return (
+        <Rectangle
+          key={zone.id}
+          bounds={bounds}
+          pathOptions={{
+            color: isCaptured ? color : '#ffffff',
+            weight: 0.5,
+            opacity: isCaptured ? 0.8 : 0.3,
+            fillColor: isCaptured ? color : '#ffffff',
+            fillOpacity: isCaptured ? 0.35 : 0.03,
+            interactive: false,
+          }}
+        />
+      )
+    })
+}
+
+function ZoomTracker({ onZoomChange }) {
+  useMapEvents({
+    zoomend(e) { onZoomChange(e.target.getZoom()) }
+  })
+  return null
+}
+
+// Handles camera positioning onto the player's marker
+function MapCentering({ position, autoCenter, hasCenteredOnce, setHasCenteredOnce }) {
+  const map = useMap()
+  useEffect(() => {
+    if (position && autoCenter) {
+      if (!hasCenteredOnce) {
+        // Snaps to maximum zoom limit (14) on first satellite lock
+        map.setView([position.lat, position.lng], 14, { animate: true })
+        setHasCenteredOnce(true)
+      } else {
+        // Continuous updates follow user zoom choices
+        map.setView([position.lat, position.lng], map.getZoom(), {
+          animate: true,
+          duration: 1,
+        })
+      }
+    }
+  }, [position, autoCenter, hasCenteredOnce, setHasCenteredOnce, map])
+  return null
+}
+
+// Listens to manual panning and temporarily disables camera auto-centering
+function MapInteractionTracker({ setAutoCenter }) {
+  useMapEvents({
+    dragstart() {
+      setAutoCenter(false)
+    }
+  })
+  return null
+}
+
+async function revealAndCapture(
+  position, zones, userId, onCapture,
+  sessionId, updateZone, isOnline, queueTrace, queueCapture
+) {
+  const traceData = {
+    session_id: sessionId,
+    latitude: position.lat,
+    longitude: position.lng,
+    recorded_at: new Date().toISOString(),
+  }
+
+  if (sessionId) {
+    if (isOnline) {
+      await supabase.from('traces').insert(traceData)
+    } else {
+      queueTrace(traceData)
+      console.log('Offline — trace queued')
+    }
+  }
+
+  for (const zone of zones) {
+    const centerLat = (zone.lat_min + zone.lat_max) / 2
+    const centerLng = (zone.lng_min + zone.lng_max) / 2
+    const dist = haversine(position.lat, position.lng, centerLat, centerLng)
+
+    if (dist < REVEAL_RADIUS && !zone.revealed) {
+      if (isOnline) {
+        await supabase.from('zones').update({ revealed: true }).eq('id', zone.id)
+      }
+      updateZone({ ...zone, revealed: true })
+    }
+
+    const inside =
+      position.lat >= zone.lat_min && position.lat <= zone.lat_max &&
+      position.lng >= zone.lng_min && position.lng <= zone.lng_max
+
+    if (inside && zone.owner_id === userId) continue
+
+    if (inside && zone.owner_id !== userId) {
+      const isContested = zone.owner_id !== null
+
+      if (isOnline) {
+        const { error } = await supabase.from('zones')
+          .update({
+            owner_id: userId,
+            captured_at: new Date().toISOString(),
+            contested: isContested,
+            revealed: true,
+          })
+          .eq('id', zone.id)
+
+        if (!error) {
+          updateZone({ ...zone, owner_id: userId, contested: isContested, revealed: true })
+          onCapture(zone, isContested)
+        }
+      } else {
+        queueCapture({
+          zoneId: zone.id,
+          userId,
+          capturedAt: new Date().toISOString(),
+          contested: isContested,
+        })
+        console.log('Offline — capture queued')
+      }
+    }
+  }
+}
+
+// Maps high contrast complementary colors dynamically to keep compass visible inside captured cells
+function getContrastColor(hex) {
+  const lowerHex = hex.toLowerCase()
+  const mapping = {
+    '#ff4757': '#00cec9', // Crimson (Red) -> Cyan (Electric Teal)
+    '#2ed573': '#ff4757', // Emerald (Green) -> Crimson (Red)
+    '#1e90ff': '#ffa502', // Azure (Blue) -> Amber (Orange)
+    '#ffa502': '#1e90ff', // Amber (Orange) -> Azure (Blue)
+    '#a29bfe': '#ffa502', // Royal (Purple) -> Amber (Orange)
+    '#cbd5e1': '#ff4757', // Platinum (Solo) -> Crimson (Red)
+  }
+  return mapping[lowerHex] || '#00cec9'
+}
+
+function GPSHandler({
+  position, heading, sessionActive, zones, userId, userColor,
+  onCapture, sessionId, updateZone, isOnline, queueTrace, queueCapture
+}) {
+  useEffect(() => {
+    if (!position || !sessionActive) return
+    revealAndCapture(
+      position, zones, userId, onCapture,
+      sessionId, updateZone, isOnline, queueTrace, queueCapture
+    )
+  }, [position, sessionActive, zones, userId, onCapture, sessionId, updateZone, isOnline, queueTrace, queueCapture])
+
+  const safeColor = userColor || '#3b82f6'
+  const contrastColor = getContrastColor(safeColor)
+
+  // Custom unified pointer with dynamic rotated pointing beacon + blinking pulse radar waves
+  const compassIcon = useMemo(() => {
+    if (!position) return null
+    const rotation = heading !== null ? heading : 0
+
+    return L.divIcon({
+      className: 'gps-conquest-pointer',
+      html: `
+        <div style="position: relative; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;">
+          
+          <!-- 1. Blinking Pulse Radar Waves (Emits only when sessionActive is true) -->
+          ${sessionActive ? `
+            <div class="radar-pulse-ring" style="
+              position: absolute;
+              width: 40px;
+              height: 40px;
+              border-radius: 50%;
+              border: 2.5px solid ${safeColor};
+              opacity: 0;
+              top: 50%;
+              left: 50%;
+              transform: translate(-50%, -50%) scale(0.4);
+              animation: conquestPulse 1.8s infinite ease-out;
+            "></div>
+            <div class="radar-pulse-ring" style="
+              position: absolute;
+              width: 40px;
+              height: 40px;
+              border-radius: 50%;
+              border: 2.5px solid ${safeColor};
+              opacity: 0;
+              top: 50%;
+              left: 50%;
+              transform: translate(-50%, -50%) scale(0.4);
+              animation: conquestPulse 1.8s infinite ease-out;
+              animation-delay: 0.9s;
+            "></div>
+          ` : ''}
+
+          <!-- 2. Facing Direction Cone Beacon (Contrasting Hex locks onto target color visibility) -->
+          ${heading !== null ? `
+            <div style="
+              position: absolute;
+              width: 80px;
+              height: 80px;
+              top: 50%;
+              left: 50%;
+              transform: translate(-50%, -50%) rotate(${rotation}deg);
+              transition: transform 0.1s ease-out;
+              background: radial-gradient(circle at 50% 50%, ${contrastColor}45 0%, ${contrastColor}15 35%, transparent 65%);
+              clip-path: polygon(50% 50%, 25% 0%, 75% 0%);
+              pointer-events: none;
+              z-index: 1;
+            "></div>
+          ` : ''}
+
+          <!-- 3. Outer White Frame Border Ring -->
+          <div style="
+            position: absolute;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: white;
+            box-shadow: 0 3px 8px rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 5;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+          ">
+            <!-- 4. Solid Center Faction Core Dot -->
+            <div style="
+              width: 10px;
+              height: 10px;
+              border-radius: 50%;
+              background: ${safeColor};
+            "></div>
+          </div>
+
+        </div>
+
+        <!-- Localized GPU-Accelerated Animations -->
+        <style>
+          @keyframes conquestPulse {
+            0% {
+              transform: translate(-50%, -50%) scale(0.4);
+              opacity: 0.8;
+            }
+            100% {
+              transform: translate(-50%, -50%) scale(2.4);
+              opacity: 0;
+            }
+          }
+        </style>
+      `,
+      iconSize: [40, 40],
+      iconAnchor: [20, 20]
+    })
+  }, [position, heading, sessionActive, safeColor, contrastColor])
+
+  return position && compassIcon ? (
+    <Marker 
+      position={[position.lat, position.lng]} 
+      icon={compassIcon} 
+      interactive={false} 
+    />
+  ) : null
+}
+
+export default function Map() {
+  const { profile } = useAuth()
+  const [sessionActive, setSessionActive] = useState(false)
+  const [sessionId, setSessionId] = useState(null)
+  const [points, setPoints] = useState(0)
+  const [zonesCount, setZonesCount] = useState(0)
+  const [profiles, setProfiles] = useState({})
+  const [zoom, setZoom] = useState(13)
+  const { zones, updateZone } = useZones()
+  
+  // Track location and compass constantly
+  const { position, distance, accuracy, error, heading, requestCompassPermission } = useGPS(sessionActive)
+  const { isOnline, syncing, pendingCount, queueTrace, queueCapture } = useOfflineSync()
+  const mask = useMemo(() => buildMask(rupandehiBoundary), [])
+
+  // Viewport center locks
+  const [autoCenter, setAutoCenter] = useState(true)
+  const [hasCenteredOnce, setHasCenteredOnce] = useState(false)
+
+  const [pocketMode, setPocketMode] = useState(false)
+  const [showSlider, setShowSlider] = useState(false)
+  const [sliderValue, setSliderValue] = useState(0)
+  const [sliderCountdown, setSliderCountdown] = useState(3)
+
+  const [lockHoldPercent, setLockHoldPercent] = useState(0)
+  const [unlockHoldPercent, setUnlockHoldPercent] = useState(0)
+
+  const [showPreSessionModal, setShowPreSessionModal] = useState(false)
+  const [showTutorialOverlay, setShowTutorialOverlay] = useState(false)
+
+  const lockHoldInterval = useRef(null)
+  const unlockHoldInterval = useRef(null)
+  const sliderTimeout = useRef(null)
+  const sliderCountdownInterval = useRef(null)
+  const wakeLockRef = useRef(null)
+
+  async function requestWakeLock() {
+    if ('wakeLock' in navigator) {
+      try {
+        wakeLockRef.current = await navigator.wakeLock.request('screen')
+        console.log('Wake Lock active — screen will not turn off.')
+      } catch (err) {
+        console.warn('Wake Lock request failed:', err.message)
+      }
+    }
+  }
+
+  function releaseWakeLock() {
+    if (wakeLockRef.current) {
+      wakeLockRef.current.release()
+        .then(() => {
+          wakeLockRef.current = null
+          console.log('Wake Lock released.')
+        })
+        .catch(err => {
+          console.warn('Wake Lock release failed:', err.message)
+        })
+    }
+  }
+
+  useEffect(() => {
+    if (sessionActive || pocketMode) {
+      requestWakeLock()
+    } else {
+      releaseWakeLock()
+    }
+    return () => releaseWakeLock()
+  }, [sessionActive, pocketMode])
+
+  useEffect(() => {
+    async function handleVisibilityChange() {
+      if (wakeLockRef.current !== null && document.visibilityState === 'visible') {
+        await requestWakeLock()
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [])
+
+  const handleLockStart = (e) => {
+    e.preventDefault()
+    setLockHoldPercent(0)
+    const startTime = Date.now()
+    lockHoldInterval.current = setInterval(() => {
+      const elapsed = Date.now() - startTime
+      const percent = Math.min((elapsed / 2000) * 100, 100)
+      setLockHoldPercent(percent)
+      if (percent >= 100) {
+        clearInterval(lockHoldInterval.current)
+        setPocketMode(true)
+        setLockHoldPercent(0)
+      }
+    }, 50)
+  }
+
+  const handleLockEnd = () => {
+    if (lockHoldInterval.current) clearInterval(lockHoldInterval.current)
+    setLockHoldPercent(0)
+  }
+
+  const handleUnlockHoldStart = (e) => {
+    e.preventDefault()
+    setUnlockHoldPercent(0)
+    const startTime = Date.now()
+    unlockHoldInterval.current = setInterval(() => {
+      const elapsed = Date.now() - startTime
+      const percent = Math.min((elapsed / 2000) * 100, 100)
+      setUnlockHoldPercent(percent)
+      if (percent >= 100) {
+        clearInterval(unlockHoldInterval.current)
+        setUnlockHoldPercent(0)
+        setShowSlider(true)
+        startSliderSystem()
+      }
+    }, 50)
+  }
+
+  const handleUnlockHoldEnd = () => {
+    if (unlockHoldInterval.current) clearInterval(unlockHoldInterval.current)
+    setUnlockHoldPercent(0)
+  }
+
+  const startSliderSystem = () => {
+    if (sliderTimeout.current) clearTimeout(sliderTimeout.current)
+    if (sliderCountdownInterval.current) clearInterval(sliderCountdownInterval.current)
+
+    setSliderCountdown(3)
+    setSliderValue(0)
+
+    sliderCountdownInterval.current = setInterval(() => {
+      setSliderCountdown(prev => Math.max(prev - 1, 0))
+    }, 1000)
+
+    sliderTimeout.current = setTimeout(() => {
+      setShowSlider(false)
+      setSliderValue(0)
+      if (sliderCountdownInterval.current) clearInterval(sliderCountdownInterval.current)
+    }, 3000)
+  }
+
+  const handleSliderChange = (e) => {
+    const val = parseInt(e.target.value, 10)
+    setSliderValue(val)
+
+    if (val >= 95) {
+      if (sliderTimeout.current) clearTimeout(sliderTimeout.current)
+      if (sliderCountdownInterval.current) clearInterval(sliderCountdownInterval.current)
+      setPocketMode(false)
+      setShowSlider(false)
+      setSliderValue(0)
+    }
+  }
+
+  const handleSliderRelease = () => {
+    if (sliderValue < 95) {
+      setSliderValue(0)
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      if (lockHoldInterval.current) clearInterval(lockHoldInterval.current)
+      if (unlockHoldInterval.current) clearInterval(unlockHoldInterval.current)
+      if (sliderTimeout.current) clearTimeout(sliderTimeout.current)
+      if (sliderCountdownInterval.current) clearInterval(sliderCountdownInterval.current)
+    }
+  }, [])
+
+  useEffect(() => {
+    async function fetchProfiles() {
+      const { data } = await supabase.from('profiles').select('*')
+      if (data) {
+        const map = {}
+        data.forEach(p => map[p.id] = p)
+        setProfiles(map)
+      }
+    }
+    fetchProfiles()
+  }, [])
+
+  useEffect(() => {
+    if (!sessionActive || !sessionId || !isOnline) return
+    const interval = setInterval(async () => {
+      await supabase
+        .from('sessions')
+        .update({ distance_m: distance })
+        .eq('id', sessionId)
+    }, 30000)
+    return () => clearInterval(interval)
+  }, [sessionActive, sessionId, distance, isOnline])
+
+  async function handleSession() {
+    if (sessionActive) {
+      if (sessionId && isOnline) {
+        await supabase
+          .from('sessions')
+          .update({
+            ended_at: new Date().toISOString(),
+            distance_m: distance,
+            points: points,
+            zones_captured: zonesCount,
+          })
+          .eq('id', sessionId)
+      }
+      setSessionId(null)
+      setSessionActive(false)
+      setZonesCount(0)
+      setPoints(0)
+      setPocketMode(false)
+      setShowSlider(false)
+    } else {
+      setShowPreSessionModal(true)
+    }
+  }
+
+  async function confirmStartSession() {
+    setShowPreSessionModal(false)
+    
+    // Explicit compass calibration permission trigger (crucial for iOS gesture requirements)
+    await requestCompassPermission()
+
+    if (isOnline) {
+      const { data, error } = await supabase
+        .from('sessions')
+        .insert({
+          user_id: profile.id,
+          started_at: new Date().toISOString(),
+          distance_m: 0,
+          points: 0,
+          zones_captured: 0,
+        })
+        .select()
+        .single()
+
+      if (!error && data) {
+        setSessionId(data.id)
+        setSessionActive(true)
+        setShowTutorialOverlay(true)
+      } else {
+        console.error('Session start error:', error)
+      }
+    } else {
+      setSessionId('offline-' + Date.now())
+      setSessionActive(true)
+      setShowTutorialOverlay(true)
+    }
+  }
+
+  async function handleCapture(zone, isContested) {
+    const earned = isContested ? 25 : 10
+    const newPoints = points + earned
+    const newZonesCount = zonesCount + 1
+    setPoints(newPoints)
+    setZonesCount(newZonesCount)
+
+    if (sessionId && isOnline && !sessionId.startsWith('offline-')) {
+      await supabase
+        .from('sessions')
+        .update({
+          points: newPoints,
+          zones_captured: newZonesCount,
+          distance_m: distance,
+        })
+        .eq('id', sessionId)
+    }
+  }
+
+  return (
+    <div style={{ height: '100%', width: '100%', position: 'relative' }}>
+
+      <MapContainer
+        center={CENTER}
+        zoom={14}
+        style={{ position: 'absolute', inset: 0 }}
+        maxBounds={[[27.2, 83.0], [27.9, 83.8]]}
+        maxBoundsViscosity={1.0}
+        minZoom={9} // Zoom limits strictly preserved as requested
+        maxZoom={18} // Zoom limits strictly preserved as requested
+      >
+        <TileLayer
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          attribution='&copy; OpenStreetMap contributors'
+          updateWhenIdle={true}
+          updateWhenZooming={false}
+          keepBuffer={1}
+          bounds={[[27.3301647, 83.2042469], [27.7672862, 83.6343973]]}
+        />
+        <GeoJSON data={rupandehiBoundary} style={borderStyle} />
+        <GeoJSON data={mask} style={maskStyle} />
+        <ZoomTracker onZoomChange={setZoom} />
+        
+        {/* Dynamic tracking camera focus locks */}
+        <MapCentering 
+          position={position} 
+          autoCenter={autoCenter} 
+          hasCenteredOnce={hasCenteredOnce} 
+          setHasCenteredOnce={setHasCenteredOnce} 
+        />
+        <MapInteractionTracker setAutoCenter={setAutoCenter} />
+
+        {zoom >= 11 && <ZoneLayer zones={zones} profiles={profiles} />}
+        
+        <GPSHandler
+          position={position}
+          heading={heading} // Compass angle state
+          sessionActive={sessionActive} // Pulse radar trigger
+          zones={zones}
+          userId={profile?.id}
+          userColor={profile?.color}
+          onCapture={handleCapture}
+          sessionId={sessionId}
+          updateZone={updateZone}
+          isOnline={isOnline}
+          queueTrace={queueTrace}
+          queueCapture={queueCapture}
+        />
+      </MapContainer>
+
+      {/* Floating stats — only during session */}
+      {sessionActive && !pocketMode && (
+        <div style={{
+          position: 'absolute', top: 12, left: 12, right: 12, zIndex: 1000,
+          background: 'rgba(15, 16, 32, 0.9)',
+          backdropFilter: 'blur(10px)',
+          WebkitBackdropFilter: 'blur(10px)',
+          border: '1px solid #1e2042',
+          borderRadius: 12,
+          padding: '10px 14px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 6,
+          maxWidth: 320,
+          boxShadow: '0 8px 32px rgba(0,0,0,0.5)'
+        }}>
+
+          {/* GPS status */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{
+              width: 6, height: 6, borderRadius: '50%',
+              background: error ? '#ef4444' : position ? '#2ed573' : '#ffa502',
+              flexShrink: 0,
+            }} />
+            <span style={{ color: '#94a3b8', fontSize: 10, fontWeight: 500 }}>
+              {error ? error : position ? `GPS ±${Math.round(accuracy || 0)}m` : 'Acquiring GPS...'}
+            </span>
+          </div>
+
+          {/* Online/offline indicator */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{
+              width: 6, height: 6, borderRadius: '50%',
+              background: isOnline ? '#2ed573' : '#ef4444',
+              flexShrink: 0,
+            }} />
+            <span style={{ color: '#94a3b8', fontSize: 10, fontWeight: 500 }}>
+              {syncing ? 'Syncing...' : isOnline ? 'Online' : `Offline — ${pendingCount} queued`}
+            </span>
+          </div>
+
+          {/* Stats Grid */}
+          {!error && (
+            <div style={{ display: 'flex', gap: 12, marginTop: 4, justifyContent: 'space-between' }}>
+              <div style={{ flex: 1, textAlign: 'center' }}>
+                <div style={{ color: '#64748b', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>
+                  Distance
+                </div>
+                <div style={{ color: 'white', fontSize: 13, fontWeight: 800 }}>
+                  {Math.round(distance)}m
+                </div>
+              </div>
+              <div style={{ width: 1, background: '#1e2042' }} />
+              <div style={{ flex: 1, textAlign: 'center' }}>
+                <div style={{ color: '#64748b', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>
+                  Points
+                </div>
+                <div style={{ color: profile?.color || '#3b82f6', fontSize: 13, fontWeight: 800 }}>
+                  {points}
+                </div>
+              </div>
+              <div style={{ flex: 1, textAlign: 'center' }}>
+                <div style={{ color: '#64748b', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>
+                  Zones
+                </div>
+                <div style={{ color: '#1e90ff', fontSize: 13, fontWeight: 800 }}>
+                  {zonesCount}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* RECENTER CAMERA / FOLLOW TARGET BUTTON */}
+      {position && !pocketMode && (
+        <button
+          onClick={() => setAutoCenter(prev => !prev)}
+          style={{
+            position: 'absolute',
+            bottom: 148, // Placed cleanly above the pocket lock button
+            right: 16,
+            zIndex: 1000,
+            background: '#0f1020',
+            border: '1px solid #1e2042',
+            color: autoCenter ? (profile?.color || '#3b82f6') : '#64748b',
+            boxShadow: autoCenter ? `0 0 12px ${(profile?.color || '#3b82f6')}33` : 'none',
+            borderRadius: '50%',
+            width: 48,
+            height: 48,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: 20,
+            cursor: 'pointer',
+            transition: 'all 0.15s ease'
+          }}
+          title="Toggle Auto-Recenter Follow"
+        >
+          🧭
+        </button>
+      )}
+
+      {/* LOCK TRIGGER BUTTON */}
+      {sessionActive && !pocketMode && (
+        <button
+          onTouchStart={handleLockStart}
+          onTouchEnd={handleLockEnd}
+          onMouseDown={handleLockStart}
+          onMouseUp={handleLockEnd}
+          onMouseLeave={handleLockEnd}
+          style={{
+            position: 'absolute',
+            bottom: 90,
+            right: 16,
+            zIndex: 1000,
+            background: '#0f1020',
+            border: '1px solid #1e2042',
+            color: '#e2e8f0',
+            borderRadius: '50%',
+            width: 48,
+            height: 48,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: 20,
+            cursor: 'pointer',
+            boxShadow: '0 4px 16px rgba(0,0,0,0.6)',
+            userSelect: 'none',
+            WebkitUserSelect: 'none',
+          }}
+          title="Hold 2s to Lock Screen"
+        >
+          <svg className="absolute inset-0 w-full h-full -rotate-90 pointer-events-none" viewBox="0 0 48 48">
+            <circle
+              cx="24"
+              cy="24"
+              r="22"
+              stroke="rgba(59, 130, 246, 0.1)"
+              strokeWidth="2.5"
+              fill="transparent"
+            />
+            <circle
+              cx="24"
+              cy="24"
+              r="22"
+              stroke="#3b82f6"
+              strokeWidth="2.5"
+              fill="transparent"
+              strokeDasharray={2 * Math.PI * 22}
+              strokeDashoffset={2 * Math.PI * 22 * (1 - lockHoldPercent / 100)}
+              style={{ transition: lockHoldPercent === 0 ? 'none' : 'stroke-dashoffset 0.05s linear' }}
+            />
+          </svg>
+          <span style={{ pointerEvents: 'none' }}>🔒</span>
+        </button>
+      )}
+
+      {/* FULLSCREEN POCKET LOCK */}
+      {pocketMode && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: '#000000',
+          zIndex: 99999,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: 24,
+          boxSizing: 'border-box',
+          userSelect: 'none',
+          WebkitUserSelect: 'none',
+        }}>
+          {!showSlider && (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <div style={{ textAlign: 'center', marginBottom: 40 }}>
+                <p style={{ color: '#475569', fontSize: 13, fontWeight: 600, margin: '0 0 6px 0', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Pocket Mode Active
+                </p>
+                <p style={{ color: '#1e293b', fontSize: 11, margin: 0 }}>
+                  GPS is actively capturing zones in your pocket.
+                </p>
+              </div>
+
+              <button
+                onTouchStart={handleUnlockHoldStart}
+                onTouchEnd={handleUnlockHoldEnd}
+                onMouseDown={handleUnlockHoldStart}
+                onMouseUp={handleUnlockHoldEnd}
+                onMouseLeave={handleUnlockHoldEnd}
+                style={{
+                  width: 96,
+                  height: 96,
+                  borderRadius: '50%',
+                  background: '#050508',
+                  border: '1.5px solid #1e2042',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  position: 'relative',
+                  outline: 'none',
+                  color: '#3b82f6',
+                  boxShadow: '0 0 20px rgba(59, 130, 246, 0.02)',
+                }}
+              >
+                <svg className="absolute inset-0 w-full h-full -rotate-90 pointer-events-none" viewBox="0 0 96 96">
+                  <circle
+                    cx="48"
+                    cy="48"
+                    r="44"
+                    stroke="rgba(59, 130, 246, 0.05)"
+                    strokeWidth="3.5"
+                    fill="transparent"
+                  />
+                  <circle
+                    cx="48"
+                    cy="48"
+                    r="44"
+                    stroke="#2563eb"
+                    strokeWidth="3.5"
+                    fill="transparent"
+                    strokeDasharray={2 * Math.PI * 44}
+                    strokeDashoffset={2 * Math.PI * 44 * (1 - unlockHoldPercent / 100)}
+                    style={{ transition: unlockHoldPercent === 0 ? 'none' : 'stroke-dashoffset 0.05s linear' }}
+                  />
+                </svg>
+                <span style={{ fontSize: 24, pointerEvents: 'none', marginBottom: 2 }}>🔓</span>
+                <span style={{ fontSize: 9, fontWeight: 700, pointerEvents: 'none', textTransform: 'uppercase', letterSpacing: '0.02em', color: '#64748b' }}>
+                  Hold 2s
+                </span>
+              </button>
+            </div>
+          )}
+
+          {showSlider && (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <div style={{ textAlign: 'center', marginBottom: 32 }}>
+                <p style={{ color: '#ef4444', fontSize: 13, fontWeight: 700, margin: '0 0 4px 0', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Confirm Unlock
+                </p>
+                <p style={{ color: '#475569', fontSize: 11, margin: 0 }}>
+                  Slide to confirm before revert: <span style={{ color: '#ef4444', fontWeight: 800 }}>{sliderCountdown}s</span>
+                </p>
+              </div>
+
+              <div style={{
+                position: 'relative',
+                width: 260,
+                height: 52,
+                background: '#090a10',
+                border: '1.5px solid #1e2042',
+                borderRadius: 26,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                overflow: 'hidden',
+                boxShadow: '0 4px 20px rgba(0,0,0,0.8)'
+              }}>
+                <span style={{
+                  color: '#475569',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  pointerEvents: 'none',
+                  position: 'absolute',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.06em',
+                }}>
+                  Slide to Confirm ➔
+                </span>
+
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={sliderValue}
+                  onChange={handleSliderChange}
+                  onMouseUp={handleSliderRelease}
+                  onTouchEnd={handleSliderRelease}
+                  className="w-full h-full appearance-none bg-transparent cursor-pointer outline-none z-10 accent-blue-600 [&::-webkit-slider-thumb]:w-10 [&::-webkit-slider-thumb]:h-10 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-600 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:shadow-[0_0_12px_rgba(59,130,246,0.5)] [&::-moz-range-thumb]:w-10 [&::-moz-range-thumb]:h-10 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-blue-600 [&::-moz-range-thumb]:border-none"
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Session trigger button */}
+      {!pocketMode && (
+        <div style={{
+          position: 'absolute',
+          bottom: 24,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 1000,
+        }}>
+          <button
+            onClick={handleSession}
+            style={{
+              background: sessionActive ? '#dc2626' : 'linear-gradient(135deg, #3b82f6, #1e40af)',
+              color: 'white',
+              fontSize: 14,
+              fontWeight: 800,
+              padding: '12px 32px',
+              borderRadius: 50,
+              border: 'none',
+              cursor: 'pointer',
+              boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
+              whiteSpace: 'nowrap',
+              transition: 'transform 0.1s ease',
+            }}
+          >
+            {sessionActive ? '⏹ End Session' : '▶ Start Session'}
+          </button>
+        </div>
+      )}
+
+      {/* INVISIBLE failsafe video loop keeps phone displays active during run tracking */}
+      {sessionActive && (
+        <video
+          src="data:video/mp4;base64,AAAAIGZ0eXBtcDQyAAAAAG1wNDJpc29tYXZjMQAAAAhmcmVlAAAAsW1kYXTeBAAAbWFmZi8vLz8+fn4gZ29vZCByZWFkeSBmb3IgY29tcHJlc3Npb24gLSB0ZXN0ZWQgYnkgbWlsb3NoX3NpbWVrAAAAAG1vb3YAAABsbXZoZAAAAADe71/l3u9f5QAAAAA="
+          playsInline
+          muted
+          loop
+          autoPlay
+          style={{
+            position: 'absolute',
+            width: '1px',
+            height: '1px',
+            opacity: 0.01,
+            pointerEvents: 'none',
+            zIndex: -100
+          }}
+        />
+      )}
+
+      {/* MODAL A: PRE-SESSION CONFIGURATION & CHECKLIST */}
+      {showPreSessionModal && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(5, 5, 8, 0.85)',
+          backdropFilter: 'blur(12px)',
+          WebkitBackdropFilter: 'blur(12px)',
+          zIndex: 99999,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: 16,
+          boxSizing: 'border-box'
+        }}>
+          <div style={{
+            background: '#0f1020',
+            border: '1.5px solid #1e2042',
+            borderRadius: 16,
+            padding: '24px 20px',
+            maxWidth: 340,
+            width: '100%',
+            boxShadow: '0 24px 64px rgba(0,0,0,0.8)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 16,
+            boxSizing: 'border-box'
+          }}>
+            <div style={{ textAlign: 'center', marginBottom: 4 }}>
+              <div style={{ fontSize: 32, marginBottom: 8 }}>🏃</div>
+              <h2 style={{ color: 'white', fontSize: 16, fontWeight: 800, margin: 0, letterSpacing: '-0.01em' }}>
+                Pre-Run Checklist
+              </h2>
+              <p style={{ color: '#64748b', fontSize: 11, margin: '4px 0 0 0' }}>
+                Setup everything before taking off!
+              </p>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '8px 0' }}>
+              {[
+                { emoji: '🎵', text: 'Start your favorite music / podcast' },
+                { emoji: '🎧', text: 'Check headphones / wireless connection' },
+                { emoji: '📡', text: 'Turn on GPS / Location services' },
+                { emoji: '👟', text: 'Make sure shoe laces are secured' },
+              ].map((item, index) => (
+                <div key={index} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <span style={{ fontSize: 18, flexShrink: 0 }}>{item.emoji}</span>
+                  <span style={{ color: '#94a3b8', fontSize: 12, fontWeight: 500, lineHeight: '1.4' }}>{item.text}</span>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+              <button
+                onClick={() => setShowPreSessionModal(false)}
+                style={{
+                  flex: 1,
+                  background: 'transparent',
+                  border: '1px solid #1e2042',
+                  color: '#64748b',
+                  borderRadius: 10,
+                  padding: '12px',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                Go Back
+              </button>
+              <button
+                onClick={confirmStartSession}
+                style={{
+                  flex: 1.5,
+                  background: 'linear-gradient(135deg, #3b82f6, #1e40af)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: 10,
+                  padding: '12px',
+                  fontSize: 12,
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  boxShadow: '0 4px 16px rgba(59, 130, 246, 0.3)',
+                }}
+              >
+                Let's Go!
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL B: INSTRUCTIONAL TUTORIAL */}
+      {showTutorialOverlay && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(5, 5, 8, 0.9)',
+          backdropFilter: 'blur(8px)',
+          WebkitBackdropFilter: 'blur(8px)',
+          zIndex: 99999,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: 16,
+          boxSizing: 'border-box'
+        }}>
+          <div style={{
+            background: '#0f1020',
+            border: '1.5px solid #1e2042',
+            borderRadius: 16,
+            padding: '28px 20px',
+            maxWidth: 340,
+            width: '100%',
+            boxShadow: '0 24px 64px rgba(0,0,0,0.8)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 16,
+            boxSizing: 'border-box',
+            textAlign: 'center'
+          }}>
+            <div>
+              <div style={{ fontSize: 32, marginBottom: 12 }}>⚠️</div>
+              <h2 style={{ color: '#ef4444', fontSize: 16, fontWeight: 800, margin: 0, letterSpacing: '-0.01em' }}>
+                Crucial System Warning!
+              </h2>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, margin: '8px 0' }}>
+              <p style={{ color: '#f1f5f9', fontSize: 13, fontWeight: 700, margin: 0 }}>
+                DO NOT Lock Your Phone!
+              </p>
+              <p style={{ color: '#94a3b8', fontSize: 11, lineHeight: '1.6', margin: 0 }}>
+                If you press your phone's physical power button to lock the screen, your browser will sleep, and tracking will stop entirely.
+              </p>
+              <p style={{ color: '#3b82f6', fontSize: 11, fontWeight: 700, lineHeight: '1.6', margin: 0 }}>
+                Use our built-in Pocket Mode (🔒 button on the right) instead! It safely blacks out the screen so you can run with your phone in your pocket.
+              </p>
+            </div>
+
+            <button
+              onClick={() => setShowTutorialOverlay(false)}
+              style={{
+                background: 'linear-gradient(135deg, #3b82f6, #1e40af)',
+                color: 'white',
+                border: 'none',
+                borderRadius: 10,
+                padding: '13px',
+                fontSize: 13,
+                fontWeight: 800,
+                cursor: 'pointer',
+                boxShadow: '0 4px 16px rgba(59, 130, 246, 0.3)',
+                marginTop: 4
+              }}
+            >
+              Got It, Let's Run!
+            </button>
+          </div>
+        </div>
+      )}
+
+    </div>
+  )
+}
