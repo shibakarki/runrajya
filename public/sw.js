@@ -1,4 +1,4 @@
-const CACHE_NAME = 'runrajya-conquest-v1';
+const CACHE_NAME = 'runrajya-conquest-v2';
 
 // Pre-cache vital entrance assets
 const ASSETS_TO_CACHE = [
