@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 
-const ACCURACY_THRESHOLD = 30 // tighter accuracy filter
+const ACCURACY_THRESHOLD = 80 // Loosened to 80m for reliable indoor/outdoor testing
 const MIN_DISTANCE = 10 // minimum 10m movement before counting
 const MAX_SPEED = 6 // max 6 m/s (roughly 20 km/h) — anything faster is GPS noise
 
@@ -26,7 +26,7 @@ export function useGPS(sessionActive) {
   const lastTime = useRef(null)
   const watchId = useRef(null)
 
-  // 1. Reset distance counters when a new session transitions to active
+  // Reset distance counters when a new session transitions to active
   useEffect(() => {
     if (sessionActive) {
       setDistance(0)
@@ -35,7 +35,7 @@ export function useGPS(sessionActive) {
     }
   }, [sessionActive])
 
-  // 2. Absolute Compass listeners (Android absolute orientation + iOS Safari compatibility)
+  // Absolute Compass listeners (Android absolute orientation + iOS Safari compatibility)
   useEffect(() => {
     const handleOrientation = (e) => {
       let compass = null
@@ -85,7 +85,7 @@ export function useGPS(sessionActive) {
     return true
   }
 
-  // 3. Always-On Geolocation Watcher
+  // Always-On Geolocation Watcher
   useEffect(() => {
     if (!navigator.geolocation) {
       setError('Geolocation is not supported by your browser.')
@@ -142,7 +142,6 @@ export function useGPS(sessionActive) {
           lastTime.current = now
         }
       } else {
-        // Keeps history coordinates updated even when not recording active sessions
         lastPos.current = newPos
         lastTime.current = now
       }
@@ -152,10 +151,10 @@ export function useGPS(sessionActive) {
       console.error('GPS error:', err)
       switch (err.code) {
         case 1:
-          setError('Location permission denied.')
+          setError('Location permission denied. Please allow location access in your phone/browser settings.')
           break
         case 2:
-          setError('Location unavailable.')
+          setError('Location unavailable. GPS satellites blocked.')
           break
         case 3:
           setError('GPS timed out.')
@@ -177,7 +176,7 @@ export function useGPS(sessionActive) {
         watchId.current = null
       }
     }
-  }, [sessionActive]) // Safely triggers metric resets on state swaps
+  }, [sessionActive])
 
   return { position, distance, accuracy, error, heading, requestCompassPermission }
 }

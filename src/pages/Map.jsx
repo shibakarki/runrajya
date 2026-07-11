@@ -207,7 +207,6 @@ function GPSHandler({
   const safeColor = userColor || '#3b82f6'
   const contrastColor = getContrastColor(safeColor)
 
-  // Custom unified pointer with dynamic rotated pointing beacon + blinking pulse radar waves
   const compassIcon = useMemo(() => {
     if (!position) return null
     const rotation = heading !== null ? heading : 0
@@ -246,7 +245,7 @@ function GPSHandler({
             "></div>
           ` : ''}
 
-          <!-- 2. Facing Direction Cone Beacon (Contrasting Hex locks onto target color visibility) -->
+          <!-- 2. Facing Direction Cone Beacon -->
           ${heading !== null ? `
             <div style="
               position: absolute;
@@ -592,12 +591,12 @@ export default function Map() {
 
       <MapContainer
         center={CENTER}
-        zoom={14}
+        zoom={10}
         style={{ position: 'absolute', inset: 0 }}
         maxBounds={[[27.2, 83.0], [27.9, 83.8]]}
         maxBoundsViscosity={1.0}
-        minZoom={9} // Zoom limits strictly preserved as requested
-        maxZoom={18} // Zoom limits strictly preserved as requested
+        minZoom={7} // Zoom limits strictly preserved
+        maxZoom={14} // Zoom limits strictly preserved
       >
         <TileLayer
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -637,6 +636,33 @@ export default function Map() {
           queueCapture={queueCapture}
         />
       </MapContainer>
+
+      {/* GLOBAL ALWAYS-VISIBLE STATUS/ERROR BANNER */}
+      {(error || !position) && (
+        <div style={{
+          position: 'absolute',
+          top: sessionActive ? 110 : 12, // Offset downwards if session HUD active, otherwise stay at top
+          left: 12,
+          right: 12,
+          zIndex: 1000,
+          background: error ? 'rgba(220, 38, 38, 0.95)' : 'rgba(15, 16, 32, 0.95)',
+          backdropFilter: 'blur(8px)',
+          borderRadius: 12,
+          padding: '12px 16px',
+          boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+          border: error ? '1px solid #ef4444' : '1px solid #1e2042',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          maxWidth: 320,
+          boxSizing: 'border-box'
+        }}>
+          <span style={{ fontSize: 16, flexShrink: 0 }}>{error ? '❌' : '🛰️'}</span>
+          <span style={{ color: '#e2e8f0', fontSize: 11, fontWeight: 700, lineHeight: '1.4' }}>
+            {error ? error : 'Acquiring high-accuracy GPS signal... Please step outside or check browser location permission.'}
+          </span>
+        </div>
+      )}
 
       {/* Floating stats — only during session */}
       {sessionActive && !pocketMode && (
