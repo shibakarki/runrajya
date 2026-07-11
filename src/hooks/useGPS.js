@@ -17,7 +17,13 @@ function haversine(lat1, lng1, lat2, lng2) {
 
 export function useGPS(sessionActive) {
   const [position, setPosition] = useState(null)
-  const [distance, setDistance] = useState(0)
+  const [distance, setDistance] = useState(() => {
+    // Attempt to recover starting distance if restoring an interrupted active run
+    try {
+      const cached = JSON.parse(localStorage.getItem('runrajya-active-run'))
+      return cached ? cached.distance : 0
+    } catch { return 0 }
+  })
   const [accuracy, setAccuracy] = useState(null)
   const [error, setError] = useState(null)
   const [heading, setHeading] = useState(null) // Compass heading in degrees (0-360)
@@ -26,12 +32,19 @@ export function useGPS(sessionActive) {
   const lastTime = useRef(null)
   const watchId = useRef(null)
 
-  // Reset distance counters when a new session transitions to active
+  // Reset distance counters when starting a brand new session
   useEffect(() => {
     if (sessionActive) {
-      setDistance(0)
-      lastPos.current = null
-      lastTime.current = null
+      try {
+        const cached = localStorage.getItem('runrajya-active-run')
+        if (!cached) {
+          setDistance(0)
+          lastPos.current = null
+          lastTime.current = null
+        }
+      } catch {
+        setDistance(0)
+      }
     }
   }, [sessionActive])
 
@@ -142,6 +155,7 @@ export function useGPS(sessionActive) {
           lastTime.current = now
         }
       } else {
+        // Keeps history coordinates updated even when not recording active sessions
         lastPos.current = newPos
         lastTime.current = now
       }

@@ -319,10 +319,33 @@ function GPSHandler({
 
 export default function Map() {
   const { profile } = useAuth()
-  const [sessionActive, setSessionActive] = useState(false)
-  const [sessionId, setSessionId] = useState(null)
-  const [points, setPoints] = useState(0)
-  const [zonesCount, setZonesCount] = useState(0)
+  
+  // 1. Hot recovery: Initialize React states directly from localStorage cache if active
+  const [sessionActive, setSessionActive] = useState(() => {
+    try {
+      const cached = JSON.parse(localStorage.getItem('runrajya-active-run'))
+      return cached ? cached.sessionActive : false
+    } catch { return false }
+  })
+  const [sessionId, setSessionId] = useState(() => {
+    try {
+      const cached = JSON.parse(localStorage.getItem('runrajya-active-run'))
+      return cached ? cached.sessionId : null
+    } catch { return null }
+  })
+  const [points, setPoints] = useState(() => {
+    try {
+      const cached = JSON.parse(localStorage.getItem('runrajya-active-run'))
+      return cached ? cached.points : 0
+    } catch { return 0 }
+  })
+  const [zonesCount, setZonesCount] = useState(() => {
+    try {
+      const cached = JSON.parse(localStorage.getItem('runrajya-active-run'))
+      return cached ? cached.zonesCount : 0
+    } catch { return 0 }
+  })
+
   const [profiles, setProfiles] = useState({})
   const [zoom, setZoom] = useState(13)
   const { zones, updateZone } = useZones()
@@ -352,6 +375,20 @@ export default function Map() {
   const sliderTimeout = useRef(null)
   const sliderCountdownInterval = useRef(null)
   const wakeLockRef = useRef(null)
+
+  // 2. Real-time Auto-Save Loop: backup session metrics to persistent storage on every change
+  useEffect(() => {
+    if (sessionActive && sessionId) {
+      const runState = {
+        sessionActive,
+        sessionId,
+        points,
+        zonesCount,
+        distance // synced from useGPS hook
+      }
+      localStorage.setItem('runrajya-active-run', JSON.stringify(runState))
+    }
+  }, [sessionActive, sessionId, points, zonesCount, distance])
 
   async function requestWakeLock() {
     if ('wakeLock' in navigator) {
@@ -514,7 +551,7 @@ export default function Map() {
 
   async function handleSession() {
     if (sessionActive) {
-      if (sessionId && isOnline) {
+      if (sessionId && isOnline && !String(sessionId).startsWith('offline-')) {
         await supabase
           .from('sessions')
           .update({
@@ -525,6 +562,10 @@ export default function Map() {
           })
           .eq('id', sessionId)
       }
+      
+      // Wipe the auto-save cache on complete run finalization
+      localStorage.removeItem('runrajya-active-run')
+
       setSessionId(null)
       setSessionActive(false)
       setZonesCount(0)
@@ -576,7 +617,7 @@ export default function Map() {
     setPoints(newPoints)
     setZonesCount(newZonesCount)
 
-    if (sessionId && isOnline && !sessionId.startsWith('offline-')) {
+    if (sessionId && isOnline && !String(sessionId).startsWith('offline-')) {
       await supabase
         .from('sessions')
         .update({
