@@ -597,8 +597,8 @@ export default function Map() {
           style={{ position: 'absolute', inset: 0 }}
           maxBounds={[[27.2, 83.0], [27.9, 83.8]]}
           maxBoundsViscosity={1.0}
-          minZoom={7} // Zoom limits strictly preserved
-          maxZoom={14} // Zoom limits strictly preserved
+          minZoom={10} // Zoom limits strictly preserved
+          maxZoom={17} // Zoom limits strictly preserved
         >
           <TileLayer
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
