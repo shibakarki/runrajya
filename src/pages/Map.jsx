@@ -414,7 +414,8 @@ export default function Map() {
     }, 50)
   }
 
-  const handleLockEnd = () => {
+  const handleLockEnd = (e) => {
+    if (e) e.preventDefault()
     if (lockHoldInterval.current) clearInterval(lockHoldInterval.current)
     setLockHoldPercent(0)
   }
@@ -436,7 +437,8 @@ export default function Map() {
     }, 50)
   }
 
-  const handleUnlockHoldEnd = () => {
+  const handleUnlockHoldEnd = (e) => {
+    if (e) e.preventDefault()
     if (unlockHoldInterval.current) clearInterval(unlockHoldInterval.current)
     setUnlockHoldPercent(0)
   }
@@ -597,8 +599,8 @@ export default function Map() {
           style={{ position: 'absolute', inset: 0 }}
           maxBounds={[[27.2, 83.0], [27.9, 83.8]]}
           maxBoundsViscosity={1.0}
-          minZoom={10} // Zoom limits strictly preserved
-          maxZoom={17} // Zoom limits strictly preserved
+          minZoom={7} // Zoom limits strictly preserved
+          maxZoom={14} // Zoom limits strictly preserved
         >
           <TileLayer
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -702,9 +704,11 @@ export default function Map() {
             <button
               onTouchStart={handleLockStart}
               onTouchEnd={handleLockEnd}
+              onTouchCancel={handleLockEnd}
               onMouseDown={handleLockStart}
               onMouseUp={handleLockEnd}
               onMouseLeave={handleLockEnd}
+              onContextMenu={(e) => e.preventDefault()}
               style={{
                 position: 'absolute',
                 bottom: 90,
@@ -724,6 +728,8 @@ export default function Map() {
                 boxShadow: '0 4px 16px rgba(0,0,0,0.6)',
                 userSelect: 'none',
                 WebkitUserSelect: 'none',
+                touchAction: 'none',
+                WebkitTouchCallout: 'none',
               }}
               title="Hold 2s to Lock Screen"
             >
@@ -804,12 +810,16 @@ export default function Map() {
               <button
                 onTouchStart={handleLockStart}
                 onTouchEnd={handleLockEnd}
+                onTouchCancel={handleLockEnd}
                 onMouseDown={handleLockStart}
                 onMouseUp={handleLockEnd}
                 onMouseLeave={handleLockEnd}
+                onContextMenu={(e) => e.preventDefault()}
                 className="py-3 rounded-xl border border-[#1e2042] text-xs font-bold text-white transition-all flex items-center justify-center gap-2 cursor-pointer outline-none select-none relative overflow-hidden"
                 style={{
-                  background: `linear-gradient(to right, rgba(59, 130, 246, 0.15) ${lockHoldPercent}%, #14152a ${lockHoldPercent}%)`
+                  background: `linear-gradient(to right, rgba(59, 130, 246, 0.15) ${lockHoldPercent}%, #14152a ${lockHoldPercent}%)`,
+                  touchAction: 'none',
+                  WebkitTouchCallout: 'none',
                 }}
               >
                 🔒 Hold 2s to Lock
@@ -912,6 +922,143 @@ export default function Map() {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* FULLSCREEN POCKET LOCK OVERLAY */}
+      {pocketMode && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: '#000000',
+          zIndex: 99999,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: 24,
+          boxSizing: 'border-box',
+          userSelect: 'none',
+          WebkitUserSelect: 'none',
+        }}>
+          {!showSlider && (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <div style={{ textAlign: 'center', marginBottom: 40 }}>
+                <p style={{ color: '#475569', fontSize: 13, fontWeight: 600, margin: '0 0 6px 0', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Pocket Mode Active
+                </p>
+                <p style={{ color: '#1e293b', fontSize: 11, margin: 0 }}>
+                  GPS is actively capturing zones in your pocket.
+                </p>
+              </div>
+
+              <button
+                onTouchStart={handleUnlockHoldStart}
+                onTouchEnd={handleUnlockHoldEnd}
+                onTouchCancel={handleUnlockHoldEnd}
+                onMouseDown={handleUnlockHoldStart}
+                onMouseUp={handleUnlockHoldEnd}
+                onMouseLeave={handleUnlockHoldEnd}
+                onContextMenu={(e) => e.preventDefault()}
+                style={{
+                  width: 96,
+                  height: 96,
+                  borderRadius: '50%',
+                  background: '#050508',
+                  border: '1.5px solid #1e2042',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  position: 'relative',
+                  outline: 'none',
+                  color: '#3b82f6',
+                  boxShadow: '0 0 20px rgba(59, 130, 246, 0.02)',
+                  userSelect: 'none',
+                  WebkitUserSelect: 'none',
+                  touchAction: 'none',
+                  WebkitTouchCallout: 'none',
+                }}
+              >
+                <svg className="absolute inset-0 w-full h-full -rotate-90 pointer-events-none" viewBox="0 0 96 96">
+                  <circle
+                    cx="48"
+                    cy="48"
+                    r="44"
+                    stroke="rgba(59, 130, 246, 0.05)"
+                    strokeWidth="3.5"
+                    fill="transparent"
+                  />
+                  <circle
+                    cx="48"
+                    cy="48"
+                    r="44"
+                    stroke="#2563eb"
+                    strokeWidth="3.5"
+                    fill="transparent"
+                    strokeDasharray={2 * Math.PI * 44}
+                    strokeDashoffset={2 * Math.PI * 44 * (1 - unlockHoldPercent / 100)}
+                    style={{ transition: unlockHoldPercent === 0 ? 'none' : 'stroke-dashoffset 0.05s linear' }}
+                  />
+                </svg>
+                <span style={{ fontSize: 24, pointerEvents: 'none', marginBottom: 2 }}>🔓</span>
+                <span style={{ fontSize: 9, fontWeight: 700, pointerEvents: 'none', textTransform: 'uppercase', letterSpacing: '0.02em', color: '#64748b' }}>
+                  Hold 2s
+                </span>
+              </button>
+            </div>
+          )}
+
+          {showSlider && (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <div style={{ textAlign: 'center', marginBottom: 32 }}>
+                <p style={{ color: '#ef4444', fontSize: 13, fontWeight: 700, margin: '0 0 4px 0', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Confirm Unlock
+                </p>
+                <p style={{ color: '#475569', fontSize: 11, margin: 0 }}>
+                  Slide to confirm before revert: <span style={{ color: '#ef4444', fontWeight: 800 }}>{sliderCountdown}s</span>
+                </p>
+              </div>
+
+              <div style={{
+                position: 'relative',
+                width: 260,
+                height: 52,
+                background: '#090a10',
+                border: '1.5px solid #1e2042',
+                borderRadius: 26,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                overflow: 'hidden',
+                boxShadow: '0 4px 20px rgba(0,0,0,0.8)'
+              }}>
+                <span style={{
+                  color: '#475569',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  pointerEvents: 'none',
+                  position: 'absolute',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.06em',
+                }}>
+                  Slide to Confirm ➔
+                </span>
+
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={sliderValue}
+                  onChange={handleSliderChange}
+                  onMouseUp={handleSliderRelease}
+                  onTouchEnd={handleSliderRelease}
+                  className="w-full h-full appearance-none bg-transparent cursor-pointer outline-none z-10 accent-blue-600 [&::-webkit-slider-thumb]:w-10 [&::-webkit-slider-thumb]:h-10 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-600 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:shadow-[0_0_12px_rgba(59,130,246,0.5)] [&::-moz-range-thumb]:w-10 [&::-moz-range-thumb]:h-10 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-blue-600 [&::-moz-range-thumb]:border-none"
+                />
+              </div>
+            </div>
+          )}
         </div>
       )}
 
