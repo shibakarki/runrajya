@@ -89,6 +89,13 @@ export default function Landing({ user, profile, onGetStarted }) {
     fetchLiveMetrics()
   }, [])
 
+  // FIX 4: Auto-close Auth Modal popup instantly upon successful login/signup
+  useEffect(() => {
+    if (user) {
+      setAuthModalOpen(false)
+    }
+  }, [user])
+
   // Smooth scroll handler for landing page anchors
   const scrollToSection = (id) => {
     const element = document.getElementById(id)
@@ -171,7 +178,7 @@ export default function Landing({ user, profile, onGetStarted }) {
             borderRadius: 16,
             background: 'linear-gradient(135deg, #0f1020, #080810)',
             border: '1.5px solid #1e2042',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            display: 'flex', alignItems: 'center', justifySelf: 'center', justifyContent: 'center',
             boxShadow: '0 8px 30px rgba(59, 130, 246, 0.2)',
           }}>
             <img 
@@ -181,7 +188,7 @@ export default function Landing({ user, profile, onGetStarted }) {
                 width: 36, 
                 height: 36, 
                 objectFit: 'contain',
-                filter: 'brightness(0) invert(1)' // Inverts dark graphic to white
+                filter: 'brightness(0) invert(1)' 
               }} 
             />
           </div>

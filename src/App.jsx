@@ -24,9 +24,19 @@ export default function App() {
   const [showLanding, setShowLanding] = useState(true)
   const isMobile = useIsMobile()
 
+  // FIX 1: Bypass landing page on reload if user is already logged in
+  useEffect(() => {
+    if (!loading && user) {
+      setShowLanding(false)
+    }
+  }, [user, loading])
+
+  // FIX 3: Ask confirmation before signout
   function handleSignOut() {
-    signOut()
-    setShowLanding(true)
+    if (window.confirm("Are you sure you want to sign out and disconnect your session?")) {
+      signOut()
+      setShowLanding(true)
+    }
   }
 
   if (loading) return (
@@ -35,7 +45,7 @@ export default function App() {
     </div>
   )
 
-  // Show Landing page if showLanding is true
+  // Show Landing page if showLanding is true (regardless of auth state)
   if (showLanding) {
     return (
       <Landing 
@@ -199,7 +209,7 @@ export default function App() {
       {/* Main content */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
 
-        {/* MAP PANEL */}
+        {/* MAP PAGE */}
         <div style={{ position: 'absolute', inset: 0, display: page === 'map' ? 'flex' : 'none' }}>
           <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
             <Map />
