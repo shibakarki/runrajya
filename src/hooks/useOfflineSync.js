@@ -23,18 +23,6 @@ function openDB() {
   })
 }
 
-function addToStore(storeName, item) {
-  return openDB().then(db => {
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(storeName, 'readwrite')
-      const store = tx.objectStore(storeName)
-      store.add(item)
-      tx.oncomplete = () => resolve()
-      tx.onerror = (e) => reject(e.target.error)
-    })
-  })
-}
-
 function getAllFromStore(storeName) {
   return openDB().then(db => {
     return new Promise((resolve, reject) => {
@@ -80,7 +68,10 @@ export function useOfflineSync() {
 
   const queueTrace = useCallback(async (trace) => {
     try {
-      await addToStore('traces', trace)
+      const db = await openDB()
+      const tx = db.transaction('traces', 'readwrite')
+      tx.objectStore('traces').add(trace)
+      await new Promise((res) => tx.oncomplete = res)
       await updatePendingCount()
     } catch (err) {
       console.error('Failed to log trace offline:', err)
@@ -89,14 +80,16 @@ export function useOfflineSync() {
 
   const queueCapture = useCallback(async (capture) => {
     try {
-      await addToStore('captures', capture)
+      const db = await openDB()
+      const tx = db.transaction('captures', 'readwrite')
+      tx.objectStore('captures').add(capture)
+      await new Promise((res) => tx.oncomplete = res)
       await updatePendingCount()
     } catch (err) {
       console.error('Failed to log capture offline:', err)
     }
   }, [updatePendingCount])
 
-  // Syncs stored queues with a 10-second timeout guard to prevent connection hangs
   const syncToDatabase = useCallback(async () => {
     if (!navigator.onLine) return
     if (syncing) return
@@ -113,7 +106,6 @@ export function useOfflineSync() {
       setSyncing(true)
       console.log('Initiating sync...', { traces, captures })
 
-      // Helper: 10-second timeout promise
       const fetchWithTimeout = (promise, ms = 10000) => {
         return Promise.race([
           promise,
@@ -130,27 +122,40 @@ export function useOfflineSync() {
         )
       }
 
-      // 2. Sync Captures with Conflict Resolution Timestamps
+      // 2. Sync Captures with Conflict Resolution Timestamps & Detailed Error Logging
       if (captures.length > 0) {
         for (const cap of captures) {
-          const { data: currentZone } = await fetchWithTimeout(
+          const { data: currentZone, error: fetchError } = await fetchWithTimeout(
             supabase.from('zones').select('captured_at').eq('id', cap.zoneId).single()
           )
+
+          if (fetchError) {
+            console.warn(`Failed to fetch current ownership for zone ${cap.zoneId}:`, fetchError.message)
+            continue
+          }
 
           const shouldOverwrite = !currentZone?.captured_at || 
             new Date(cap.capturedAt) < new Date(currentZone.captured_at);
 
           if (shouldOverwrite) {
-            await fetchWithTimeout(
+            const { error: capError } = await fetchWithTimeout(
               supabase.from('zones').update({
                 owner_id: cap.userId,
                 captured_at: cap.capturedAt,
                 contested: cap.contested,
                 revealed: true,
-              }).eq('id', cap.zoneId).then(({ error }) => {
-                if (error) throw error
-              })
+              }).eq('id', cap.zoneId)
             )
+
+            // CRUCIAL: Logs exact DB error if RLS or Constraints block the write
+            if (capError) {
+              console.error(`DATABASE REJECTED CAPTURE for Zone ${cap.zoneId}!`, {
+                code: capError.code, // e.g., '42501' for RLS violation
+                message: capError.message,
+                hint: capError.hint
+              })
+              throw capError
+            }
           }
         }
       }
