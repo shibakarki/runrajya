@@ -4,14 +4,12 @@ import { supabase } from '../lib/supabase'
 const DB_NAME = 'RunRajyaOfflineDB'
 const DB_VERSION = 1
 
-// Helper: Open the browser's transactional IndexedDB
 function openDB() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION)
 
     request.onupgradeneeded = (e) => {
       const db = e.target.result
-      // Create independent high-capacity stores for paths and conquests
       if (!db.objectStoreNames.contains('traces')) {
         db.createObjectStore('traces', { autoIncrement: true })
       }
@@ -25,7 +23,6 @@ function openDB() {
   })
 }
 
-// Helper: Add an item to a store
 function addToStore(storeName, item) {
   return openDB().then(db => {
     return new Promise((resolve, reject) => {
@@ -38,7 +35,6 @@ function addToStore(storeName, item) {
   })
 }
 
-// Helper: Retrieve all items from a store
 function getAllFromStore(storeName) {
   return openDB().then(db => {
     return new Promise((resolve, reject) => {
@@ -51,7 +47,6 @@ function getAllFromStore(storeName) {
   })
 }
 
-// Helper: Clear a store
 function clearStore(storeName) {
   return openDB().then(db => {
     return new Promise((resolve, reject) => {
@@ -69,7 +64,6 @@ export function useOfflineSync() {
   const [syncing, setSyncing] = useState(false)
   const [pendingCount, setPendingCount] = useState(0)
 
-  // Recalculates the total offline queue count
   const updatePendingCount = useCallback(async () => {
     try {
       const traces = await getAllFromStore('traces')
@@ -84,7 +78,6 @@ export function useOfflineSync() {
     updatePendingCount()
   }, [updatePendingCount])
 
-  // Queues GPS trace coordinate to IndexedDB
   const queueTrace = useCallback(async (trace) => {
     try {
       await addToStore('traces', trace)
@@ -94,7 +87,6 @@ export function useOfflineSync() {
     }
   }, [updatePendingCount])
 
-  // Queues zone capture event to IndexedDB
   const queueCapture = useCallback(async (capture) => {
     try {
       await addToStore('captures', capture)
@@ -104,7 +96,7 @@ export function useOfflineSync() {
     }
   }, [updatePendingCount])
 
-  // Syncs all stored queues to Supabase
+  // Syncs stored queues with a 10-second timeout guard to prevent connection hangs
   const syncToDatabase = useCallback(async () => {
     if (!navigator.onLine) return
     if (syncing) return
@@ -119,45 +111,46 @@ export function useOfflineSync() {
       }
 
       setSyncing(true)
-      console.log('Initiating high-capacity synchronization to Supabase...', { traces, captures })
+      console.log('Initiating sync...', { traces, captures })
+
+      // Helper: 10-second timeout promise
+      const fetchWithTimeout = (promise, ms = 10000) => {
+        return Promise.race([
+          promise,
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Network Sync Timeout')), ms))
+        ])
+      }
 
       // 1. Sync Traces
       if (traces.length > 0) {
-        const { error: traceError } = await supabase
-          .from('traces')
-          .insert(traces)
-
-        if (traceError) throw traceError
+        await fetchWithTimeout(
+          supabase.from('traces').insert(traces).then(({ error }) => {
+            if (error) throw error
+          })
+        )
       }
 
       // 2. Sync Captures with Conflict Resolution Timestamps
       if (captures.length > 0) {
         for (const cap of captures) {
-          const { data: currentZone } = await supabase
-            .from('zones')
-            .select('captured_at')
-            .eq('id', cap.zoneId)
-            .single()
+          const { data: currentZone } = await fetchWithTimeout(
+            supabase.from('zones').select('captured_at').eq('id', cap.zoneId).single()
+          )
 
           const shouldOverwrite = !currentZone?.captured_at || 
             new Date(cap.capturedAt) < new Date(currentZone.captured_at);
 
           if (shouldOverwrite) {
-            const { error: capError } = await supabase
-              .from('zones')
-              .update({
+            await fetchWithTimeout(
+              supabase.from('zones').update({
                 owner_id: cap.userId,
                 captured_at: cap.capturedAt,
                 contested: cap.contested,
                 revealed: true,
+              }).eq('id', cap.zoneId).then(({ error }) => {
+                if (error) throw error
               })
-              .eq('id', cap.zoneId)
-
-            if (capError) {
-              console.warn(`Failed to sync capture for zone ${cap.zoneId}:`, capError.message)
-            }
-          } else {
-            console.log(`Skipping sync for zone ${cap.zoneId} — already claimed by an earlier runner.`)
+            )
           }
         }
       }
@@ -168,7 +161,7 @@ export function useOfflineSync() {
       setPendingCount(0)
       console.log('Offline queue successfully synchronized.')
     } catch (err) {
-      console.error('Database synchronization failed:', err)
+      console.error('Database synchronization failed or timed out:', err.message)
     } finally {
       setSyncing(false)
     }

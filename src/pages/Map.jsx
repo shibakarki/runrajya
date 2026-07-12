@@ -110,9 +110,12 @@ function MapInteractionTracker({ setAutoCenter }) {
   return null
 }
 
+// OPTIMISTIC LOCAL CAPTURING:
+// Logs everything directly to local IndexedDB and paints the UI instantly.
+// Background sync handles database integration quietly.
 async function revealAndCapture(
   position, zones, userId, onCapture,
-  sessionId, updateZone, isOnline, queueTrace, queueCapture
+  sessionId, updateZone, queueTrace, queueCapture
 ) {
   const traceData = {
     session_id: sessionId,
@@ -122,12 +125,7 @@ async function revealAndCapture(
   }
 
   if (sessionId) {
-    if (isOnline) {
-      await supabase.from('traces').insert(traceData)
-    } else {
-      queueTrace(traceData)
-      console.log('Offline — trace queued')
-    }
+    await queueTrace(traceData) // Always log path coordinates locally first
   }
 
   for (const zone of zones) {
@@ -135,10 +133,8 @@ async function revealAndCapture(
     const centerLng = (zone.lng_min + zone.lng_max) / 2
     const dist = haversine(position.lat, position.lng, centerLat, centerLng)
 
+    // Optimistic Reveal
     if (dist < REVEAL_RADIUS && !zone.revealed) {
-      if (isOnline) {
-        await supabase.from('zones').update({ revealed: true }).eq('id', zone.id)
-      }
       updateZone({ ...zone, revealed: true })
     }
 
@@ -151,29 +147,18 @@ async function revealAndCapture(
     if (inside && zone.owner_id !== userId) {
       const isContested = zone.owner_id !== null
 
-      if (isOnline) {
-        const { error } = await supabase.from('zones')
-          .update({
-            owner_id: userId,
-            captured_at: new Date().toISOString(),
-            contested: isContested,
-            revealed: true,
-          })
-          .eq('id', zone.id)
+      // OPTIMISTIC PAINT: Update local map and score instantly
+      updateZone({ ...zone, owner_id: userId, contested: isContested, revealed: true })
+      onCapture(zone, isContested)
 
-        if (!error) {
-          updateZone({ ...zone, owner_id: userId, contested: isContested, revealed: true })
-          onCapture(zone, isContested)
-        }
-      } else {
-        queueCapture({
-          zoneId: zone.id,
-          userId,
-          capturedAt: new Date().toISOString(),
-          contested: isContested,
-        })
-        console.log('Offline — capture queued')
-      }
+      // QUEUE FOR SYNC: Write capture event directly to IndexedDB
+      await queueCapture({
+        zoneId: zone.id,
+        userId,
+        capturedAt: new Date().toISOString(),
+        contested: isContested,
+      })
+      console.log('Capture logged and queued locally.')
     }
   }
 }
@@ -194,15 +179,15 @@ function getContrastColor(hex) {
 
 function GPSHandler({
   position, heading, sessionActive, zones, userId, userColor,
-  onCapture, sessionId, updateZone, isOnline, queueTrace, queueCapture
+  onCapture, sessionId, updateZone, queueTrace, queueCapture
 }) {
   useEffect(() => {
     if (!position || !sessionActive) return
     revealAndCapture(
       position, zones, userId, onCapture,
-      sessionId, updateZone, isOnline, queueTrace, queueCapture
+      sessionId, updateZone, queueTrace, queueCapture
     )
-  }, [position, sessionActive, zones, userId, onCapture, sessionId, updateZone, isOnline, queueTrace, queueCapture])
+  }, [position, sessionActive, zones, userId, onCapture, sessionId, updateZone, queueTrace, queueCapture])
 
   const safeColor = userColor || '#3b82f6'
   const contrastColor = getContrastColor(safeColor)
@@ -673,7 +658,7 @@ export default function Map() {
 
           {zoom >= 11 && <ZoneLayer zones={zones} profiles={profiles} />}
           
-          {/* FIX 2: Relocate the leaflet map zoom controls from top-left to bottom-left */}
+          {/* Relocate the leaflet map zoom controls from top-left to bottom-left */}
           <ZoomControl position="bottomleft" />
 
           <GPSHandler
@@ -686,7 +671,6 @@ export default function Map() {
             onCapture={handleCapture}
             sessionId={sessionId}
             updateZone={updateZone}
-            isOnline={isOnline}
             queueTrace={queueTrace}
             queueCapture={queueCapture}
           />
@@ -745,7 +729,7 @@ export default function Map() {
               title="Toggle Auto-Recenter Follow"
             >
               <img 
-                src="/logo.svg" 
+                src="/logo.svg" // Points directly to public/logo.svg
                 alt="Recenter Map" 
                 style={{ 
                   width: 24, 
@@ -826,7 +810,7 @@ export default function Map() {
           <div className="flex flex-col gap-3 flex-1 justify-center animate-[fadeInUp_0.4s_ease-out]">
             
             {/* Console Signal & GPS Sync details */}
-            <div className="flex justify-between items-center bg-[#080810] border border-[#1e2042] px-3 py-2 rounded-xl text-[10px] font-bold text-[#94a3b8] tracking-wider uppercase">
+            <div className="flex justify-between items-center bg-[#080810] border border-[#1e2042] px-3 py-2.5 rounded-xl text-[10px] font-bold text-[#94a3b8] tracking-wider uppercase">
               <div className="flex items-center gap-2">
                 <span className="animate-pulse inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500"></span>
                 <span>Signal: {position ? 'LOCK SECURE' : 'CALIBRATING'}</span>
