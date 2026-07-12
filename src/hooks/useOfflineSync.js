@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase'
 const DB_NAME = 'RunRajyaOfflineDB'
 const DB_VERSION = 1
 
-function openDB() {
+export function openDB() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION)
 
@@ -15,6 +15,10 @@ function openDB() {
       }
       if (!db.objectStoreNames.contains('captures')) {
         db.createObjectStore('captures', { autoIncrement: true })
+      }
+      // NEW: Stores the pre-cached 4,814 zone bounds for offline evaluations
+      if (!db.objectStoreNames.contains('zones_grid')) {
+        db.createObjectStore('zones_grid', { keyPath: 'id' })
       }
     }
 
@@ -122,7 +126,7 @@ export function useOfflineSync() {
         )
       }
 
-      // 2. Sync Captures with Conflict Resolution Timestamps & Detailed Error Logging
+      // 2. Sync Captures with Conflict Resolution Timestamps
       if (captures.length > 0) {
         for (const cap of captures) {
           const { data: currentZone, error: fetchError } = await fetchWithTimeout(
@@ -147,12 +151,10 @@ export function useOfflineSync() {
               }).eq('id', cap.zoneId)
             )
 
-            // CRUCIAL: Logs exact DB error if RLS or Constraints block the write
             if (capError) {
               console.error(`DATABASE REJECTED CAPTURE for Zone ${cap.zoneId}!`, {
-                code: capError.code, // e.g., '42501' for RLS violation
+                code: capError.code,
                 message: capError.message,
-                hint: capError.hint
               })
               throw capError
             }

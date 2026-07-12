@@ -54,7 +54,6 @@ export function AuthProvider({ children }) {
     // 2. Listen to authentication transitions
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       // GUARD: If offline, completely IGNORE token-refresh failures or session invalidations!
-      // Keeps the player logged in with their local credentials while running offline.
       if (!navigator.onLine && !session) {
         console.warn('Ignoring auth state invalidation while offline.')
         return
@@ -63,7 +62,6 @@ export function AuthProvider({ children }) {
       if (session) {
         setUser(session.user)
         await fetchProfile(session.user.id)
-        // Cache credentials locally for robust offline startup
         localStorage.setItem('runrajya-cached-user', JSON.stringify(session.user))
       } else {
         setUser(null)
@@ -79,7 +77,6 @@ export function AuthProvider({ children }) {
     }
   }, [])
 
-  // Sync profile data to cache whenever username/color updates
   useEffect(() => {
     if (profile) {
       localStorage.setItem('runrajya-cached-profile', JSON.stringify(profile))

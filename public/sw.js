@@ -1,6 +1,6 @@
 const CACHE_NAME = 'runrajya-conquest-v8';
 
-// Pre-cache vital entrance assets
+// Pre-cache core files on installation
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
@@ -34,12 +34,11 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
 
-  // Guard: NEVER cache database, Supabase, or Auth calls
+  // Guard: Never cache Supabase requests
   if (url.origin.includes('supabase.co')) {
     return;
   }
 
-  // Handle map tile requests and local files
   e.respondWith(
     caches.match(e.request).then((cachedResponse) => {
       if (cachedResponse) {
