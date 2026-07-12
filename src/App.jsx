@@ -21,24 +21,8 @@ export default function App() {
   const [page, setPage] = useState('map')
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [sidebarTab, setSidebarTab] = useState('ranks')
-  const [dotMenuOpen, setDotMenuOpen] = useState(false)
   const [showLanding, setShowLanding] = useState(true)
   const isMobile = useIsMobile()
-  const dotRef = useRef(null)
-
-  useEffect(() => {
-    function handleClick(e) {
-      if (dotRef.current && !dotRef.current.contains(e.target)) {
-        setDotMenuOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClick)
-    document.addEventListener('touchstart', handleClick)
-    return () => {
-      document.removeEventListener('mousedown', handleClick)
-      document.removeEventListener('touchstart', handleClick)
-    }
-  }, [])
 
   function handleSignOut() {
     signOut()
@@ -51,7 +35,7 @@ export default function App() {
     </div>
   )
 
-  // 1. Show Landing page if showLanding is true (regardless of auth state)
+  // Show Landing page if showLanding is true
   if (showLanding) {
     return (
       <Landing 
@@ -64,12 +48,12 @@ export default function App() {
     )
   }
 
-  // 2. If landing dismissed and NOT logged in, show Auth
+  // If landing dismissed and NOT logged in, show Auth
   if (!user) {
     return <Auth />
   }
 
-  // 3. If landing dismissed and IS logged in, render Map & Dashboard UI
+  // If landing dismissed and IS logged in, render Map & Dashboard UI
   return (
     <div style={{
       height: '100dvh',
@@ -81,53 +65,46 @@ export default function App() {
       position: 'relative'
     }}>
 
-      {/* Top Navigation */}
-      <div className="glass" style={{
-        background: 'rgba(15, 16, 32, 0.8)',
-        backdropFilter: 'blur(12px)',
-        WebkitBackdropFilter: 'blur(12px)',
-        borderBottom: '1px solid #1e2042',
-        padding: '0 14px',
-        height: 52,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        flexShrink: 0,
-        zIndex: 2000,
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 100 }}>
-          <button 
-            onClick={() => setShowLanding(true)} // Tapping logo returns back to landing page
+      {/* TOP NAVIGATION HUD — Desktop Standard Header, Mobile Dynamic Floating Elements */}
+      {isMobile ? (
+        <>
+          {/* A. Top-Left Floating Faction Brand Logo */}
+          <div 
+            onClick={() => setShowLanding(true)}
             style={{
-              width: 28, height: 28, borderRadius: 7,
+              position: 'fixed', top: 14, left: 14, zIndex: 2000,
+              width: 34, height: 34, borderRadius: 10,
               background: 'linear-gradient(135deg, #0f1020, #080810)',
-              border: '1px solid #1e2042',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              flexShrink: 0, cursor: 'pointer', outline: 'none',
-              padding: 0
+              border: '1.5px solid #1e2042',
+              display: 'flex', alignItems: 'center', justifySelf: 'center', justifyContent: 'center',
+              boxShadow: '0 4px 16px rgba(0,0,0,0.5)', cursor: 'pointer'
             }}
           >
             <img 
               src="/logo.svg" 
               alt="Logo" 
               style={{ 
-                width: 18, 
-                height: 18, 
-                objectFit: 'contain',
-                filter: 'brightness(0) invert(1)' // Inverts black logo to clean white
+                width: 20, height: 20, objectFit: 'contain',
+                filter: 'brightness(0) invert(1)' 
               }} 
             />
-          </button>
-          <span 
-            onClick={() => setShowLanding(true)}
-            style={{ color: '#e2e8f0', fontSize: 14, fontWeight: 800, letterSpacing: '-0.02em', cursor: 'pointer' }}
-          >
-            Run<span style={{ color: '#3b82f6' }}>Rajya</span>
-          </span>
-        </div>
+          </div>
 
-        {isMobile ? (
-          <div style={{ display: 'flex', background: '#0f1020', borderRadius: 10, padding: 3, gap: 2, border: '1px solid #1e2042' }}>
+          {/* B. Floating DYNAMIC ISLAND NAVIGATION PILL */}
+          <div style={{
+            position: 'fixed', top: 12, left: '50%', transform: 'translateX(-50%)', zIndex: 2000,
+            background: 'rgba(15, 16, 32, 0.85)',
+            backdropFilter: 'blur(16px)',
+            WebkitBackdropFilter: 'blur(16px)',
+            border: '1px solid #1e2042',
+            padding: 3,
+            borderRadius: 30,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 2,
+            boxShadow: '0 10px 32px rgba(0,0,0,0.7)',
+            transition: 'all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1)'
+          }}>
             {[
               { key: 'map', label: '🗺', text: 'Map' },
               { key: 'leaderboard', label: '🏆', text: 'Ranks' },
@@ -137,72 +114,92 @@ export default function App() {
                 key={tab.key}
                 onClick={() => setPage(tab.key)}
                 style={{
-                  padding: '6px 10px', borderRadius: 7, border: 'none', cursor: 'pointer',
-                  fontSize: 11, fontWeight: 600,
+                  padding: page === tab.key ? '8px 16px' : '8px 12px', 
+                  borderRadius: 20, border: 'none', cursor: 'pointer',
+                  fontSize: 11, fontWeight: 700,
                   background: page === tab.key ? 'linear-gradient(135deg, #3b82f6, #2563eb)' : 'transparent',
                   color: page === tab.key ? 'white' : '#64748b',
-                  whiteSpace: 'nowrap', transition: 'all 0.15s ease',
+                  whiteSpace: 'nowrap', transition: 'all 0.2s ease',
                   display: 'flex', alignItems: 'center', gap: 4,
+                  outline: 'none'
                 }}
               >
-                <span>{tab.label}</span><span>{tab.text}</span>
+                <span>{tab.label}</span>
+                {page === tab.key && <span style={{ fontSize: 10 }}>{tab.text}</span>}
               </button>
             ))}
           </div>
-        ) : (
+
+          {/* C. Direct One-Tap Session Logout Button */}
+          <button
+            onClick={handleSignOut}
+            style={{
+              position: 'fixed', top: 14, right: 14, zIndex: 2000,
+              width: 34, height: 34, borderRadius: 10,
+              background: '#0f1020',
+              border: '1.5px solid #1e2042',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: '0 4px 16px rgba(0,0,0,0.5)', cursor: 'pointer',
+              color: '#f43f5e', fontSize: 14, outline: 'none'
+            }}
+            title="Disconnect Session"
+          >
+            🚪
+          </button>
+        </>
+      ) : (
+        /* Desktop Traditional Header Layout */
+        <div className="glass" style={{
+          background: 'rgba(15, 16, 32, 0.8)',
+          backdropFilter: 'blur(12px)',
+          WebkitBackdropFilter: 'blur(12px)',
+          borderBottom: '1px solid #1e2042',
+          padding: '0 14px',
+          height: 52,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexShrink: 0,
+          zIndex: 2000,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 100 }}>
+            <button 
+              onClick={() => setShowLanding(true)}
+              style={{
+                width: 28, height: 28, borderRadius: 7,
+                background: 'linear-gradient(135deg, #0f1020, #080810)',
+                border: '1px solid #1e2042',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                flexShrink: 0, cursor: 'pointer', outline: 'none', padding: 0
+              }}
+            >
+              <img src="/logo.svg" alt="Logo" style={{ width: 18, height: 18, objectFit: 'contain', filter: 'brightness(0) invert(1)' }} />
+            </button>
+            <span 
+              onClick={() => setShowLanding(true)}
+              style={{ color: '#e2e8f0', fontSize: 14, fontWeight: 800, letterSpacing: '-0.02em', cursor: 'pointer' }}
+            >
+              Run<span style={{ color: '#3b82f6' }}>Rajya</span>
+            </span>
+          </div>
+
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <div style={{ width: 8, height: 8, borderRadius: '50%', background: profile?.color, boxShadow: `0 0 8px ${profile?.color}` }} />
             <span style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 600 }}>{profile?.username}</span>
           </div>
-        )}
 
-        {isMobile ? (
-          <div ref={dotRef} style={{ position: 'relative', minWidth: 90, display: 'flex', justifyContent: 'flex-end' }}>
-            <button
-              onClick={() => setDotMenuOpen(prev => !prev)}
-              style={{ background: '#0f1020', border: '1px solid #1e2042', borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, padding: '6px 10px' }}
-            >
-              <div style={{ width: 6, height: 6, borderRadius: '50%', background: profile?.color }} />
-              <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#475569' }} />
-            </button>
-
-            {dotMenuOpen && (
-              <div className="glass" style={{
-                position: 'absolute', top: 42, right: 0,
-                background: 'rgba(15, 16, 32, 0.95)',
-                backdropFilter: 'blur(16px)',
-                WebkitBackdropFilter: 'blur(16px)',
-                border: '1px solid #1e2042', borderRadius: 12, overflow: 'hidden',
-                zIndex: 3000, minWidth: 160, boxShadow: '0 16px 40px rgba(0,0,0,0.5)',
-              }}>
-                <div style={{ padding: '12px 14px', borderBottom: '1px solid #1e2042' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: profile?.color }} />
-                    <span style={{ color: '#e2e8f0', fontSize: 12, fontWeight: 600 }}>{profile?.username}</span>
-                  </div>
-                </div>
-                <button
-                  onClick={() => { setDotMenuOpen(false); handleSignOut() }}
-                  style={{ width: '100%', padding: '11px 14px', background: 'none', border: 'none', color: '#f87171', fontSize: 12, fontWeight: 600, cursor: 'pointer', textAlign: 'left' }}
-                >
-                  Sign out
-                </button>
-              </div>
-            )}
-          </div>
-        ) : (
           <div style={{ minWidth: 90, display: 'flex', justifyContent: 'flex-end' }}>
             <button onClick={handleSignOut} style={{ color: '#64748b', fontSize: 12, fontWeight: 500, background: 'none', border: 'none', cursor: 'pointer' }}>
               Sign out
             </button>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Main content */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
 
-        {/* MAP PAGE */}
+        {/* MAP PANEL */}
         <div style={{ position: 'absolute', inset: 0, display: page === 'map' ? 'flex' : 'none' }}>
           <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
             <Map />
@@ -257,7 +254,7 @@ export default function App() {
           )}
         </div>
 
-        {/* MOBILE PAGES */}
+        {/* MOBILE OVERLAYS */}
         {isMobile && (
           <div style={{ position: 'absolute', inset: 0, display: page !== 'map' ? 'block' : 'none', overflowY: 'auto', background: '#080810' }}>
             {page === 'leaderboard' && <div className="page-enter animate-fade-in" key="leaderboard"><Leaderboard /></div>}

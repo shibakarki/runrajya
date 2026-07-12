@@ -14,7 +14,7 @@ export default function Leaderboard({ sidebar = false }) {
     fetchLeaderboardData()
   }, [])
 
-  // Aggregate session statistics dynamically on top of profile entries
+  // Aggregate stats dynamically, pulling exact current zone ownership
   async function fetchLeaderboardData() {
     setLoading(true)
     try {
@@ -25,14 +25,28 @@ export default function Leaderboard({ sidebar = false }) {
 
       if (pError) throw pError
 
-      // 2. Fetch session statistics
+      // 2. Fetch session metrics (points and total distance)
       const { data: sessionList, error: sError } = await supabase
         .from('sessions')
-        .select('user_id, points, distance_m, zones_captured')
+        .select('user_id, points, distance_m')
 
       if (sError) throw sError
 
-      // 3. Map aggregates onto user object keys
+      // 3. Fetch exact, live zones currently owned per player directly from the zones table
+      const { data: zoneOwnershipList, error: zError } = await supabase
+        .from('zones')
+        .select('owner_id')
+        .not('owner_id', 'is', null)
+
+      if (zError) throw zError
+
+      // Map zone counts
+      const zoneCountMap = {}
+      zoneOwnershipList.forEach(z => {
+        zoneCountMap[z.owner_id] = (zoneCountMap[z.owner_id] || 0) + 1
+      })
+
+      // Aggregate final results
       const userStatsMap = {}
       profileList.forEach(p => {
         userStatsMap[p.id] = {
@@ -42,7 +56,7 @@ export default function Leaderboard({ sidebar = false }) {
           team: p.team || 'solo',
           points: 0,
           distance: 0,
-          zones: 0
+          zones: zoneCountMap[p.id] || 0 // Current zones owned
         }
       })
 
@@ -51,59 +65,41 @@ export default function Leaderboard({ sidebar = false }) {
           if (userStatsMap[s.user_id]) {
             userStatsMap[s.user_id].points += (s.points || 0)
             userStatsMap[s.user_id].distance += (s.distance_m || 0)
-            userStatsMap[s.user_id].zones += (s.zones_captured || 0)
           }
         })
       }
 
       setLeaderboard(Object.values(userStatsMap))
     } catch (err) {
-      console.error('Failed to load leaderboard metrics:', err)
+      console.error('Failed to load leaderboard data:', err)
     } finally {
       setLoading(false)
     }
   }
 
-  // Filter and sort computed records
+  // Filter and sort
   const processedLeaders = useMemo(() => {
     let list = [...leaderboard]
 
-    // Search query filter
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase()
       list = list.filter(u => u.username.toLowerCase().includes(q))
     }
 
-    // Dynamic sort algorithm
     return list.sort((a, b) => {
       if (sortBy === 'distance') return b.distance - a.distance
       if (sortBy === 'zones') return b.zones - a.zones
-      return b.points - a.points // default points
+      return b.points - a.points
     })
   }, [leaderboard, searchQuery, sortBy])
 
-  // Extract Top 3 for the visual podium
-  const topThree = useMemo(() => {
-    return processedLeaders.slice(0, 3)
-  }, [processedLeaders])
-
-  // Extract Rank 4 and below
-  const listLeaders = useMemo(() => {
-    return processedLeaders.slice(3)
-  }, [processedLeaders])
-
   if (loading) {
-    return (
-      <div style={{ height: '100%', background: '#080810', padding: 16 }}>
-        {/* Render your loading skeleton card */}
-        <div style={{ color: '#64748b', fontSize: 12, textAlign: 'center', marginTop: 40 }}>Loading Conquest Rankings...</div>
-      </div>
-    )
+    return <SkeletonLeaderboard />
   }
 
   const formatValue = (user, type) => {
-    if (type === 'distance') return `${Math.round(user.distance)}m`
-    if (type === 'zones') return `${user.zones} zones`
+    if (type === 'distance') return `${(user.distance / 1000).toFixed(1)} km`
+    if (type === 'zones') return `${user.zones} owned`
     return `${user.points} pts`
   }
 
@@ -112,16 +108,16 @@ export default function Leaderboard({ sidebar = false }) {
       height: '100%',
       background: '#080810',
       overflowY: 'auto',
-      padding: '16px 16px 80px 16px', // Extra bottom spacing keeps content above tabs
+      padding: '24px 16px 80px 16px', // Extra bottom spacing keeps content above dynamic nav pill
       display: 'flex',
       flexDirection: 'column',
       gap: 14,
       boxSizing: 'border-box'
     }}>
 
-      {/* Header — Full Screen view only */}
+      {/* Header — Full screen view only */}
       {!sidebar && (
-        <div style={{ textAlign: 'center', marginBottom: 4 }}>
+        <div style={{ textAlign: 'center', marginBottom: 4, marginTop: 48 }}>
           <h1 style={{ color: 'white', fontSize: 16, fontWeight: 800, margin: 0 }}>🏆 Conquest Rankings</h1>
           <p style={{ color: '#64748b', fontSize: 11, margin: '4px 0 0 0' }}>Rupandehi District Real-Time Standings</p>
         </div>
@@ -140,7 +136,7 @@ export default function Leaderboard({ sidebar = false }) {
         {[
           { key: 'points', label: 'Points' },
           { key: 'distance', label: 'Distance' },
-          { key: 'zones', label: 'Zones' },
+          { key: 'zones', label: 'Zones Owned' },
         ].map(tab => (
           <button
             key={tab.key}
@@ -163,7 +159,7 @@ export default function Leaderboard({ sidebar = false }) {
         ))}
       </div>
 
-      {/* Search Input — Secured at 16px baseline to prevent mobile input zoom */}
+      {/* Search Input */}
       <div style={{ position: 'relative', flexShrink: 0 }}>
         <input
           type="text"
@@ -176,7 +172,7 @@ export default function Leaderboard({ sidebar = false }) {
             borderRadius: 12,
             padding: '12px 14px',
             color: '#e2e8f0',
-            fontSize: '16px', // Guard: prevents mobile safari scale shifts
+            fontSize: '16px', // Prevents iOS input scale shifts
             outline: 'none',
             width: '100%',
             boxSizing: 'border-box'
@@ -195,120 +191,48 @@ export default function Leaderboard({ sidebar = false }) {
         )}
       </div>
 
-      {/* 3D VISUAL PODIUM (Rendered only on Full-Screen mode and if Top 3 are available) */}
-      {!sidebar && topThree.length > 0 && !searchQuery && (
-        <div style={{
-          background: 'rgba(15, 16, 32, 0.4)',
-          border: '1px solid #1e2042',
-          borderRadius: 20,
-          padding: '24px 12px 16px 12px',
-          display: 'flex',
-          alignItems: 'flex-end',
-          justifyContent: 'center',
-          height: 180,
-          gap: 10,
-          margin: '10px 0',
-          flexShrink: 0
-        }}>
-          
-          {/* Rank 2 (Left) */}
-          {topThree[1] && (
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-              <div style={{ position: 'relative', marginBottom: 8 }}>
-                <div style={{
-                  width: 44, height: 44, borderRadius: '50%',
-                  border: `2px solid ${topThree[1].color}`,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  background: '#0f1020', color: 'white', fontWeight: 800, fontSize: 14
-                }}>
-                  {topThree[1].username?.[0]?.toUpperCase()}
-                </div>
-                <div style={podiumBadgeStyle('#94a3b8')}>2</div>
-              </div>
-              <span style={podiumNameStyle}>{topThree[1].username}</span>
-              <span style={podiumScoreStyle}>{formatValue(topThree[1], sortBy)}</span>
-              <div style={podiumPillarStyle(50, '#1e2042')} />
-            </div>
-          )}
-
-          {/* Rank 1 (Center - Elevated with Neon Glow) */}
-          {topThree[0] && (
-            <div style={{ flex: 1.2, display: 'flex', flexDirection: 'column', alignItems: 'center', transform: 'translateY(-8px)' }}>
-              <div style={{ position: 'relative', marginBottom: 8 }}>
-                <div style={{
-                  width: 54, height: 54, borderRadius: '50%',
-                  border: `2.5px solid ${topThree[0].color}`,
-                  boxShadow: `0 0 15px ${topThree[0].color}77`,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  background: '#0f1020', color: 'white', fontWeight: 800, fontSize: 18
-                }}>
-                  👑
-                </div>
-                <div style={podiumBadgeStyle('#fbbf24')}>1</div>
-              </div>
-              <span style={{ ...podiumNameStyle, fontWeight: 800, color: 'white' }}>{topThree[0].username}</span>
-              <span style={{ ...podiumScoreStyle, color: topThree[0].color }}>{formatValue(topThree[0], sortBy)}</span>
-              <div style={podiumPillarStyle(70, 'linear-gradient(135deg, #1e2042, #3b82f633)')} />
-            </div>
-          )}
-
-          {/* Rank 3 (Right) */}
-          {topThree[2] && (
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-              <div style={{ position: 'relative', marginBottom: 8 }}>
-                <div style={{
-                  width: 44, height: 44, borderRadius: '50%',
-                  border: `2px solid ${topThree[2].color}`,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  background: '#0f1020', color: 'white', fontWeight: 800, fontSize: 14
-                }}>
-                  {topThree[2].username?.[0]?.toUpperCase()}
-                </div>
-                <div style={podiumBadgeStyle('#b45309')}>3</div>
-              </div>
-              <span style={podiumNameStyle}>{topThree[2].username}</span>
-              <span style={podiumScoreStyle}>{formatValue(topThree[2], sortBy)}</span>
-              <div style={podiumPillarStyle(38, '#1e2042')} />
-            </div>
-          )}
-
-        </div>
-      )}
-
-      {/* REMAINING RANKINGS LIST */}
+      {/* COMPACT & HIGHLY STYLED VERTICAL-ONLY RANKINGS LIST */}
       <div style={{
         display: 'flex',
         flexDirection: 'column',
         gap: 8,
       }}>
-        {/* Render Podium users inside a compact list if sidebar mode or search query is active */}
-        {(sidebar || searchQuery ? processedLeaders : listLeaders).map((user, i) => {
-          const rank = sidebar || searchQuery ? i + 1 : i + 4
+        {processedLeaders.map((user, i) => {
+          const rank = i + 1
           const isMe = user.id === profile?.id
           
+          // Custom luxurious indicators for the top 3 spots in the vertical list
+          const isTop3 = rank <= 3
+          const borderGlowColor = rank === 1 ? '#fbbf24' : rank === 2 ? '#94a3b8' : rank === 3 ? '#b45309' : 'transparent'
+          const badgeIcon = rank === 1 ? '🥇 1st' : rank === 2 ? '🥈 2nd' : rank === 3 ? '🥉 3rd' : `#${rank}`
+
           return (
             <div
               key={user.id}
               style={{
                 background: isMe ? 'rgba(59, 130, 246, 0.08)' : '#0f1020',
-                border: isMe ? '1.5px solid #2563eb' : '1px solid #1e2042',
+                border: isTop3 ? `1.5px solid ${borderGlowColor}` : isMe ? '1.5px solid #2563eb' : '1px solid #1e2042',
                 borderRadius: 14,
-                padding: '12px 14px',
+                padding: '14px',
                 display: 'flex',
                 alignItems: 'center',
                 gap: 12,
-                boxShadow: isMe ? '0 4px 16px rgba(37, 99, 235, 0.15)' : 'none',
+                boxShadow: isTop3 
+                  ? `0 4px 20px ${borderGlowColor}15, 0 0 10px ${borderGlowColor}08` 
+                  : isMe ? '0 4px 16px rgba(37, 99, 235, 0.15)' : 'none',
               }}
             >
-              {/* Rank Index */}
+              {/* Rank Index / Medals Badge */}
               <div style={{
-                width: 24,
-                fontSize: 12,
-                fontWeight: 800,
-                color: rank === 1 ? '#fbbf24' : rank === 2 ? '#94a3b8' : rank === 3 ? '#b45309' : '#475569',
-                textAlign: 'center'
+                width: 48,
+                fontSize: 11,
+                fontWeight: 900,
+                color: rank === 1 ? '#fbbf24' : rank === 2 ? '#cbd5e1' : rank === 3 ? '#b45309' : '#475569',
+                textAlign: 'left',
+                textTransform: 'uppercase',
+                letterSpacing: '-0.01em'
               }}>
-                #{rank}
+                {badgeIcon}
               </div>
 
               {/* Faction color bubble */}
@@ -327,13 +251,17 @@ export default function Leaderboard({ sidebar = false }) {
                   <span style={{
                     color: isMe ? '#ffffff' : '#e2e8f0',
                     fontSize: 13,
-                    fontWeight: isMe ? 800 : 600,
+                    fontWeight: isMe || isTop3 ? 800 : 600,
                     whiteSpace: 'nowrap',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis'
                   }}>
                     {user.username}
                   </span>
+                  
+                  {/* Render special Crown for Faction Leader */}
+                  {rank === 1 && <span style={{ fontSize: 11, pointerEvents: 'none' }}>👑</span>}
+
                   {user.team === 'solo' ? (
                     <span style={factionBadgeStyle('#475569', 'rgba(71, 85, 105, 0.15)')}>Solo</span>
                   ) : (
@@ -346,7 +274,7 @@ export default function Leaderboard({ sidebar = false }) {
               <div style={{
                 fontSize: 14,
                 fontWeight: 800,
-                color: isMe ? '#ffffff' : '#94a3b8',
+                color: rank === 1 ? '#fbbf24' : isMe ? '#ffffff' : '#cbd5e1',
                 textAlign: 'right'
               }}>
                 {formatValue(user, sortBy)}
@@ -365,52 +293,6 @@ export default function Leaderboard({ sidebar = false }) {
     </div>
   )
 }
-
-// Inline Podium CSS Variables
-const podiumNameStyle = {
-  fontSize: 10,
-  fontWeight: 600,
-  color: '#94a3b8',
-  maxWidth: 70,
-  whiteSpace: 'nowrap',
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
-  textAlign: 'center'
-}
-
-const podiumScoreStyle = {
-  fontSize: 11,
-  fontWeight: 800,
-  color: '#e2e8f0',
-  marginTop: 2
-}
-
-const podiumBadgeStyle = (bgColor) => ({
-  position: 'absolute',
-  bottom: -4,
-  right: -2,
-  width: 16,
-  height: 16,
-  borderRadius: '50%',
-  background: bgColor,
-  color: '#080810',
-  fontSize: 9,
-  fontWeight: 900,
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  boxShadow: '0 2px 6px rgba(0,0,0,0.5)'
-})
-
-const podiumPillarStyle = (height, background) => ({
-  width: '100%',
-  height: height,
-  background: background,
-  borderRadius: '8px 8px 0 0',
-  marginTop: 'auto',
-  border: '1.5px solid #1e2042',
-  borderBottom: 'none'
-})
 
 const factionBadgeStyle = (color, bg) => ({
   fontSize: 8,

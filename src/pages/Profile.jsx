@@ -24,6 +24,9 @@ export default function Profile({ sidebar = false }) {
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
 
+  // Interactive toggle to collapse/expand Session History Logs
+  const [showHistory, setShowHistory] = useState(false)
+
   useEffect(() => {
     if (profile) {
       setUsername(profile.username)
@@ -46,11 +49,11 @@ export default function Profile({ sidebar = false }) {
         points: sessionData.reduce((s, x) => s + (x.points || 0), 0),
         distance: sessionData.reduce((s, x) => s + (x.distance_m || 0), 0),
         sessions: sessionData.length,
-        zones: 0, // Querying database live for accuracy below
+        zones: 0, // updated dynamically below
       })
     }
 
-    // 2. Get accurate zone count directly from zones table
+    // 2. Get accurate, live zones currently owned directly from the zones table
     const { count: ownedCount } = await supabase
       .from('zones')
       .select('*', { count: 'exact', head: true })
@@ -99,16 +102,16 @@ export default function Profile({ sidebar = false }) {
       height: '100%',
       background: '#080810',
       overflowY: 'auto',
-      padding: '16px 16px 80px 16px', // Prevents footer navigation from overlapping content
+      padding: '24px 16px 80px 16px', // Prevents floating Dynamic Island pill from overlapping content
       display: 'flex',
       flexDirection: 'column',
-      gap: 14,
+      gap: 12,
       boxSizing: 'border-box'
     }}>
 
       {/* Header — full screen view only */}
       {!sidebar && (
-        <div style={{ textAlign: 'center', marginBottom: 4 }}>
+        <div style={{ textAlign: 'center', marginBottom: 4, marginTop: 48 }}>
           <h1 style={{ color: 'white', fontSize: 16, fontWeight: 800, margin: 0 }}>👤 Conqueror Dashboard</h1>
           <p style={{ color: '#64748b', fontSize: 11, margin: '4px 0 0 0' }}>Conquest Analytics & Customization</p>
         </div>
@@ -249,7 +252,7 @@ export default function Profile({ sidebar = false }) {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
         {[
           { label: 'Total Points', value: stats.points, color: profile?.color || '#3b82f6' },
-          { label: 'Distance Walked', value: `${Math.round(stats.distance)}m`, color: '#2ed573' },
+          { label: 'Distance Walked', value: `${(stats.distance / 1000).toFixed(1)} km`, color: '#2ed573' },
           { label: 'Zones Conquered', value: stats.zones, color: '#1e90ff' },
           { label: 'Active Sessions', value: stats.sessions, color: '#ffa502' },
         ].map(stat => (
@@ -320,7 +323,7 @@ export default function Profile({ sidebar = false }) {
         </div>
       </div>
 
-      {/* SESSION HISTORY HISTORY CARD */}
+      {/* COLLAPSIBLE RUNNING LOG REPORTS (SESSION HISTORY) */}
       <div style={{
         background: '#0f1020',
         border: '1px solid #1e2042',
@@ -330,66 +333,67 @@ export default function Profile({ sidebar = false }) {
         <div style={{
           padding: '12px 14px',
           borderBottom: '1px solid #1e2042',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center'
         }}>
           <span style={{ color: 'white', fontSize: 12, fontWeight: 800 }}>
-            Conquest Log (Last 5 Sessions)
+            Session Conquest Logs
           </span>
-        </div>
-
-        {sessions.length === 0 ? (
-          <div style={{ padding: 32, color: '#64748b', fontSize: 12, textAlign: 'center' }}>
-            No log reports found. Go capture some grids!
-          </div>
-        ) : sessions.slice(0, 5).map((s, i) => (
-          <div
-            key={s.id}
+          <button
+            onClick={() => setShowHistory(prev => !prev)}
             style={{
-              padding: '12px 14px',
-              borderBottom: i < Math.min(sessions.length, 5) - 1 ? '1px solid #1e2042' : 'none',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
+              background: '#14152a',
+              border: '1px solid #1e2042',
+              borderRadius: 20,
+              padding: '4px 12px',
+              color: '#3b82f6',
+              fontSize: 10,
+              fontWeight: 800,
+              cursor: 'pointer',
+              outline: 'none',
+              transition: 'all 0.15s ease'
             }}
           >
-            <div>
-              <div style={{ color: 'white', fontSize: 12, fontWeight: 700 }}>
-                {new Date(s.started_at).toLocaleDateString('en-US', {
-                  month: 'short', day: 'numeric', year: 'numeric'
-                })}
-              </div>
-              <div style={{ color: '#64748b', fontSize: 11, marginTop: 4 }}>
-                {Math.round(s.distance_m || 0)}m · {s.zones_captured || 0} zones captured
-              </div>
-            </div>
-            <div style={{ color: profile?.color, fontSize: 16, fontWeight: 900 }}>
-              +{s.points || 0} pts
-            </div>
-          </div>
-        ))}
-      </div>
+            {showHistory ? 'Collapse ✕' : 'View Logs 👁️'}
+          </button>
+        </div>
 
-      {/* MOBILE SIGN OUT BUTTON */}
-      {(!sidebar) && (
-        <button
-          onClick={signOut}
-          style={{
-            width: '100%',
-            padding: 13,
-            background: 'transparent',
-            border: '1px solid #e11d4833',
-            borderRadius: 12,
-            color: '#f43f5e',
-            fontSize: 12,
-            fontWeight: 800,
-            cursor: 'pointer',
-            textTransform: 'uppercase',
-            letterSpacing: '0.04em',
-            marginTop: 6
-          }}
-        >
-          Disconnect Session
-        </button>
-      )}
+        {showHistory && (
+          <div className="page-enter animate-fade-in">
+            {sessions.length === 0 ? (
+              <div style={{ padding: 32, color: '#64748b', fontSize: 12, textAlign: 'center' }}>
+                No log reports found. Go capture some grids!
+              </div>
+            ) : sessions.slice(0, 5).map((s, i) => (
+              <div
+                key={s.id}
+                style={{
+                  padding: '12px 14px',
+                  borderBottom: i < Math.min(sessions.length, 5) - 1 ? '1px solid #1e2042' : 'none',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}
+              >
+                <div>
+                  <div style={{ color: 'white', fontSize: 12, fontWeight: 700 }}>
+                    {new Date(s.started_at).toLocaleDateString('en-US', {
+                      month: 'short', day: 'numeric', year: 'numeric'
+                    })}
+                  </div>
+                  <div style={{ color: '#64748b', fontSize: 11, marginTop: 4 }}>
+                    {Math.round(s.distance_m || 0)}m · {s.zones_captured || 0} zones captured
+                  </div>
+                </div>
+                <div style={{ color: profile?.color, fontSize: 16, fontWeight: 900 }}>
+                  +{s.points || 0} pts
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
     </div>
   )
