@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 
 const DB_NAME = 'RunRajyaOfflineDB'
-const DB_VERSION = 1
+const DB_VERSION = 2 // UPGRADED: Bumping version to 2 forces browser database schema upgrades!
 
 export function openDB() {
   return new Promise((resolve, reject) => {
@@ -16,7 +16,7 @@ export function openDB() {
       if (!db.objectStoreNames.contains('captures')) {
         db.createObjectStore('captures', { autoIncrement: true })
       }
-      // NEW: Stores the pre-cached 4,814 zone bounds for offline evaluations
+      // Bumping version to 2 guarantees this store is successfully generated on all devices
       if (!db.objectStoreNames.contains('zones_grid')) {
         db.createObjectStore('zones_grid', { keyPath: 'id' })
       }
