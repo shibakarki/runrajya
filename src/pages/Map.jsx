@@ -538,16 +538,23 @@ export default function Map() {
     fetchProfiles()
   }, [])
 
+  // 3. Robust Background Sync: uses a mutable React Ref to read live distance securely
+  // This prevents the 30-second interval from being thrashed and cleared every single second!
+  const distanceRef = useRef(distance)
+  useEffect(() => {
+    distanceRef.current = distance
+  }, [distance])
+
   useEffect(() => {
     if (!sessionActive || !sessionId || !isOnline) return
     const interval = setInterval(async () => {
       await supabase
         .from('sessions')
-        .update({ distance_m: distance })
+        .update({ distance_m: distanceRef.current })
         .eq('id', sessionId)
     }, 30000)
     return () => clearInterval(interval)
-  }, [sessionActive, sessionId, distance, isOnline])
+  }, [sessionActive, sessionId, isOnline]) // Wiped 'distance' from dependencies to prevent infinite thrashing loops
 
   async function handleSession() {
     if (sessionActive) {
@@ -1076,7 +1083,7 @@ export default function Map() {
                 width: 260,
                 height: 52,
                 background: '#090a10',
-                border: '1px solid #1e2042',
+                border: '1.5px solid #1e2042',
                 borderRadius: 26,
                 display: 'flex',
                 alignItems: 'center',

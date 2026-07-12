@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 
 const ACCURACY_THRESHOLD = 80 // Loosened to 80m for reliable indoor/outdoor testing
-const MIN_DISTANCE = 10 // minimum 10m movement before counting
+const MIN_DISTANCE = 3 // Reduced to 3m to capture slow walks and winding curves accurately
 const MAX_SPEED = 6 // max 6 m/s (roughly 20 km/h) — anything faster is GPS noise
 
 function haversine(lat1, lng1, lat2, lng2) {
@@ -32,7 +32,7 @@ export function useGPS(sessionActive) {
   const lastTime = useRef(null)
   const watchId = useRef(null)
 
-  // Reset distance counters when starting a brand new session
+  // Reset distance counters when starting a brand new session, flushing stale references
   useEffect(() => {
     if (sessionActive) {
       try {
@@ -41,10 +41,22 @@ export function useGPS(sessionActive) {
           setDistance(0)
           lastPos.current = null
           lastTime.current = null
+        } else {
+          // If restoring cache, align refs
+          const parsed = JSON.parse(cached)
+          setDistance(parsed.distance || 0)
+          lastPos.current = null
+          lastTime.current = null
         }
       } catch {
         setDistance(0)
+        lastPos.current = null
+        lastTime.current = null
       }
+    } else {
+      // Clear references when ending a session
+      lastPos.current = null
+      lastTime.current = null
     }
   }, [sessionActive])
 
@@ -151,6 +163,7 @@ export function useGPS(sessionActive) {
           lastPos.current = newPos
           lastTime.current = now
         } else {
+          // Establish first coordinate anchor inside active session
           lastPos.current = newPos
           lastTime.current = now
         }
