@@ -18,20 +18,45 @@ function useIsMobile() {
 
 export default function App() {
   const { user, profile, loading, signOut } = useAuth()
-  const [page, setPage] = useState('map')
-  const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [sidebarTab, setSidebarTab] = useState('ranks')
-  const [showLanding, setShowLanding] = useState(true)
   const isMobile = useIsMobile()
 
-  // FIX 1: Bypass landing page on reload if user is already logged in
-  useEffect(() => {
-    if (!loading && user) {
-      setShowLanding(false)
+  // FIX 3: Initialize page context and landing page states from cache to persist on reload
+  const [page, setPage] = useState(() => {
+    try {
+      return localStorage.getItem('runrajya-active-page') || 'map'
+    } catch {
+      return 'map'
     }
-  }, [user, loading])
+  })
+  
+  const [showLanding, setShowLanding] = useState(() => {
+    try {
+      const cached = localStorage.getItem('runrajya-show-landing')
+      return cached !== null ? JSON.parse(cached) : true
+    } catch {
+      return true
+    }
+  })
 
-  // FIX 3: Ask confirmation before signout
+  // Cache active page tab
+  useEffect(() => {
+    try {
+      localStorage.setItem('runrajya-active-page', page)
+    } catch (err) {
+      console.warn('Failed to cache active page:', err)
+    }
+  }, [page])
+
+  // Cache landing page visibility state
+  useEffect(() => {
+    try {
+      localStorage.setItem('runrajya-show-landing', JSON.stringify(showLanding))
+    } catch (err) {
+      console.warn('Failed to cache landing state:', err)
+    }
+  }, [showLanding])
+
+  // Ask confirmation before signout
   function handleSignOut() {
     if (window.confirm("Are you sure you want to sign out and disconnect your session?")) {
       signOut()
@@ -52,7 +77,7 @@ export default function App() {
         user={user}
         profile={profile}
         onGetStarted={() => {
-          setShowLanding(false) // Dismiss landing, proceed to Auth or Map depending on user state below
+          setShowLanding(false) // Dismiss landing, proceed to Auth or Map depending on session state below
         }}
       />
     )

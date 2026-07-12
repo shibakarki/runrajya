@@ -1,4 +1,4 @@
-import { MapContainer, TileLayer, GeoJSON, Rectangle, Marker, useMapEvents, useMap } from 'react-leaflet'
+import { MapContainer, TileLayer, GeoJSON, Rectangle, Marker, ZoomControl, useMapEvents, useMap } from 'react-leaflet'
 import { useAuth } from '../context/AuthContext'
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
@@ -85,8 +85,8 @@ function MapCentering({ position, autoCenter, hasCenteredOnce, setHasCenteredOnc
   useEffect(() => {
     if (position && autoCenter) {
       if (!hasCenteredOnce) {
-        // Snaps to maximum zoom limit (14) on first satellite lock
-        map.setView([position.lat, position.lng], 14, { animate: true })
+        // Snaps to maximum zoom limit (17) on first satellite lock
+        map.setView([position.lat, position.lng], 16, { animate: true })
         setHasCenteredOnce(true)
       } else {
         // Continuous updates follow user zoom choices
@@ -538,7 +538,7 @@ export default function Map() {
     fetchProfiles()
   }, [])
 
-  // 3. Robust Background Sync: uses a mutable React Ref to read live distance securely
+  // Robust Background Sync: uses a mutable React Ref to read live distance securely
   const distanceRef = useRef(distance)
   useEffect(() => {
     distanceRef.current = distance
@@ -553,7 +553,7 @@ export default function Map() {
         .eq('id', sessionId)
     }, 30000)
     return () => clearInterval(interval)
-  }, [sessionActive, sessionId, isOnline]) // Wiped 'distance' from dependencies to prevent infinite thrashing loops
+  }, [sessionActive, sessionId, isOnline])
 
   async function handleSession() {
     if (sessionActive) {
@@ -638,8 +638,8 @@ export default function Map() {
   return (
     <div className="flex flex-col md:flex-row w-full h-full overflow-hidden bg-[#080810] relative">
 
-      {/* 1. MAP CANVAS CONSOLE (Desktop: Full-screen, Mobile: Compact Square Panel at the top - 65% of screen height) */}
-      <div className="w-full h-[65dvh] md:h-full md:flex-1 relative border-b md:border-b-0 md:border-r border-[#1e2042]">
+      {/* 1. MAP CANVAS CONSOLE (Desktop: Full-screen, Mobile: Compact Square Panel — exactly 65% of screen height) */}
+      <div className="w-full h-[65%] md:h-full md:flex-1 relative border-b md:border-b-0 md:border-r border-[#1e2042] flex-shrink-0">
         <MapContainer
           center={CENTER}
           zoom={10}
@@ -648,6 +648,7 @@ export default function Map() {
           maxBoundsViscosity={1.0}
           minZoom={10} // Zoom limits strictly adjusted
           maxZoom={17} // Zoom limits strictly adjusted
+          zoomControl={false} // Disable default controls to move them to bottom left
         >
           <TileLayer
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -672,6 +673,9 @@ export default function Map() {
 
           {zoom >= 11 && <ZoneLayer zones={zones} profiles={profiles} />}
           
+          {/* FIX 2: Relocate the leaflet map zoom controls from top-left to bottom-left */}
+          <ZoomControl position="bottomleft" />
+
           <GPSHandler
             position={position}
             heading={heading} // Compass angle state
@@ -692,7 +696,7 @@ export default function Map() {
         {(error || !position) && (
           <div style={{
             position: 'absolute',
-            top: 60, // Sits cleanly below the newly designed dynamic nav island
+            top: 72, // Sits beautifully below your new floating Dynamic Island pill
             left: 12,
             right: 12,
             zIndex: 1000,
@@ -741,7 +745,7 @@ export default function Map() {
               title="Toggle Auto-Recenter Follow"
             >
               <img 
-                src="/logo.svg" // Points directly to public/logo.svg
+                src="/logo.svg" 
                 alt="Recenter Map" 
                 style={{ 
                   width: 24, 
@@ -816,13 +820,13 @@ export default function Map() {
         </div>
       </div>
 
-      {/* 2. MOBILE ATHLETIC COCKPIT CONSOLE (Fitted cleanly at the bottom, taking up remaining 35% area) */}
-      <div className="flex md:hidden flex-col flex-1 bg-[#0f1020] border-t border-[#1e2042] p-5 overflow-y-auto box-border gap-4 select-none relative z-10">
+      {/* 2. MOBILE ATHLETIC COCKPIT CONSOLE (Fitted at the bottom, exactly 35% of parent height. No cropping, no scrolling) */}
+      <div className="flex md:hidden flex-col h-[35%] w-full bg-[#0f1020] border-t border-[#1e2042] p-4 box-border justify-between select-none relative z-10 overflow-hidden">
         {sessionActive ? (
-          <div className="flex flex-col gap-4 animate-[fadeInUp_0.4s_ease-out]">
+          <div className="flex flex-col gap-3 flex-1 justify-center animate-[fadeInUp_0.4s_ease-out]">
             
             {/* Console Signal & GPS Sync details */}
-            <div className="flex justify-between items-center bg-[#080810] border border-[#1e2042] px-3 py-2.5 rounded-xl text-[10px] font-bold text-[#94a3b8] tracking-wider uppercase">
+            <div className="flex justify-between items-center bg-[#080810] border border-[#1e2042] px-3 py-2 rounded-xl text-[10px] font-bold text-[#94a3b8] tracking-wider uppercase">
               <div className="flex items-center gap-2">
                 <span className="animate-pulse inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500"></span>
                 <span>Signal: {position ? 'LOCK SECURE' : 'CALIBRATING'}</span>
@@ -832,34 +836,36 @@ export default function Map() {
               </div>
             </div>
 
-            {/* Glowing Athletic Metrics Dashboard */}
-            <div className="grid grid-cols-3 gap-3">
-              <div className="bg-[#14152a] border border-[#1e2042] rounded-xl p-3 text-center">
-                <div className="text-[10px] font-bold text-[#64748b] tracking-wider uppercase mb-1">Meters</div>
-                <div className="text-xl font-black text-white">{Math.round(distance)}m</div>
+            {/* Glowing Athletic Metrics Dashboard (Includes dynamic KM formatting!) */}
+            <div className="grid grid-cols-3 gap-2">
+              <div className="bg-[#14152a] border border-[#1e2042] rounded-xl p-2.5 text-center">
+                <div className="text-[9px] font-bold text-[#64748b] tracking-wider uppercase mb-1">Distance</div>
+                <div className="text-lg font-black text-white">
+                  {distance >= 1000 ? `${(distance / 1000).toFixed(2)} km` : `${Math.round(distance)}m`}
+                </div>
               </div>
-              <div className="bg-[#14152a] border border-[#1e2042] rounded-xl p-3 text-center">
-                <div className="text-[10px] font-bold text-[#64748b] tracking-wider uppercase mb-1">Score</div>
-                <div className="text-xl font-black" style={{ color: profile?.color || '#3b82f6' }}>+{points}</div>
+              <div className="bg-[#14152a] border border-[#1e2042] rounded-xl p-2.5 text-center">
+                <div className="text-[9px] font-bold text-[#64748b] tracking-wider uppercase mb-1">Score</div>
+                <div className="text-lg font-black" style={{ color: profile?.color || '#3b82f6' }}>+{points}</div>
               </div>
-              <div className="bg-[#14152a] border border-[#1e2042] rounded-xl p-3 text-center">
-                <div className="text-[10px] font-bold text-[#64748b] tracking-wider uppercase mb-1">Grids</div>
-                <div className="text-xl font-black text-[#1e90ff]">{zonesCount}</div>
+              <div className="bg-[#14152a] border border-[#1e2042] rounded-xl p-2.5 text-center">
+                <div className="text-[9px] font-bold text-[#64748b] tracking-wider uppercase mb-1">Grids</div>
+                <div className="text-lg font-black text-[#1e90ff]">{zonesCount}</div>
               </div>
             </div>
 
             {/* Tactical Commands row */}
-            <div className="grid grid-cols-2 gap-3 mt-1">
+            <div className="grid grid-cols-2 gap-2">
               {/* Recenter alignment lock */}
               <button 
                 onClick={() => setAutoCenter(prev => !prev)}
-                className="py-3 rounded-xl border border-[#1e2042] bg-[#14152a] text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer outline-none"
+                className="py-2.5 rounded-xl border border-[#1e2042] bg-[#14152a] text-[11px] font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer outline-none"
                 style={{ 
                   color: autoCenter ? (profile?.color || '#3b82f6') : '#64748b',
                   borderColor: autoCenter ? `${(profile?.color || '#3b82f6')}33` : '#1e2042'
                 }}
               >
-                🧭 {autoCenter ? 'Follow: Active' : 'Free Cam'}
+                🧭 {autoCenter ? 'Follow: On' : 'Free Cam'}
               </button>
 
               {/* Progress-glowing hold lock trigger */}
@@ -871,7 +877,7 @@ export default function Map() {
                 onMouseUp={handleLockEnd}
                 onMouseLeave={handleLockEnd}
                 onContextMenu={(e) => e.preventDefault()}
-                className="py-3 rounded-xl border border-[#1e2042] text-xs font-bold text-white transition-all flex items-center justify-center gap-2 cursor-pointer outline-none select-none relative overflow-hidden"
+                className="py-2.5 rounded-xl border border-[#1e2042] text-[11px] font-bold text-white transition-all flex items-center justify-center gap-1.5 cursor-pointer outline-none select-none relative overflow-hidden"
                 style={{
                   background: `linear-gradient(to right, rgba(59, 130, 246, 0.15) ${lockHoldPercent}%, #14152a ${lockHoldPercent}%)`,
                   touchAction: 'none',
@@ -884,10 +890,10 @@ export default function Map() {
 
           </div>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-center p-4">
-            <div className="text-5xl mb-4 animate-[bounce_2s_infinite]">👟</div>
-            <h4 className="text-md font-extrabold text-white mb-2">Conquest Awaiting</h4>
-            <p className="text-[#64748b] text-xs leading-relaxed max-w-[280px] mb-6">
+          <div className="flex-1 flex flex-col items-center justify-center text-center p-2">
+            <div className="text-4xl mb-3 animate-[bounce_2s_infinite]">👟</div>
+            <h4 className="text-sm font-extrabold text-white mb-1">Conquest Awaiting</h4>
+            <p className="text-[#64748b] text-[10px] leading-relaxed max-w-[280px]">
               Ready to claim your territory? Start an active run session to paint grids and gain faction points around Rupandehi.
             </p>
           </div>
@@ -896,7 +902,7 @@ export default function Map() {
         {/* Command Button */}
         <button
           onClick={handleSession}
-          className="w-full py-4 mt-auto rounded-xl text-sm font-black text-white bg-gradient-to-r transition-all cursor-pointer border-none shadow-[0_4px_16px_rgba(0,0,0,0.5)] outline-none"
+          className="w-full py-3.5 rounded-xl text-xs font-black text-white bg-gradient-to-r transition-all cursor-pointer border-none shadow-[0_4px_16px_rgba(0,0,0,0.5)] outline-none"
           style={{
             background: sessionActive ? '#dc2626' : 'linear-gradient(135deg, #3b82f6, #1e40af)'
           }}
