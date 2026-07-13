@@ -85,7 +85,7 @@ function MapCentering({ position, autoCenter, hasCenteredOnce, setHasCenteredOnc
   useEffect(() => {
     if (position && autoCenter) {
       if (!hasCenteredOnce) {
-        // Snaps to maximum zoom limit (17) on first satellite lock
+        // Snaps to highly detailed street-level running view (16) on first lock
         map.setView([position.lat, position.lng], 16, { animate: true })
         setHasCenteredOnce(true)
       } else {
@@ -333,9 +333,9 @@ export default function Map() {
 
   const [profiles, setProfiles] = useState({})
   const [zoom, setZoom] = useState(13)
+  const { zones, updateZone } = useZones()
   
   // Track location and compass constantly
-  const { zones, updateZone } = useZones()
   const { position, distance, accuracy, error, heading, requestCompassPermission } = useGPS(sessionActive)
   const { isOnline, syncing, pendingCount, queueTrace, queueCapture } = useOfflineSync()
   const mask = useMemo(() => buildMask(rupandehiBoundary), [])
@@ -736,7 +736,7 @@ export default function Map() {
                   height: 24, 
                   objectFit: 'contain',
                   filter: autoCenter 
-                    ? 'brightness(0) invert(1) drop-shadow(0 0 4px ' + (profile?.color || '#3b82f6') + ')' 
+                    ? `brightness(0) invert(1) drop-shadow(0 0 4px ${profile?.color || '#3b82f6'})` 
                     : 'grayscale(100%) opacity(50%)'
                 }} 
               />

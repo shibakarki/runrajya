@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 
 const DB_NAME = 'RunRajyaOfflineDB'
-const DB_VERSION = 2 // Schema version 2 for local zones_grid support
+const DB_VERSION = 2 // forces schema updates to generate zones_grid object store
 
 export function openDB() {
   return new Promise((resolve, reject) => {
@@ -93,6 +93,7 @@ export function useOfflineSync() {
     }
   }, [updatePendingCount])
 
+  // Syncs stored queues with a 10-second timeout guard to prevent connection hangs
   const syncToDatabase = useCallback(async () => {
     if (!navigator.onLine) return
     if (syncing) return
@@ -137,8 +138,8 @@ export function useOfflineSync() {
             continue
           }
 
-          // FIX: Inverted operator corrected to ">" (Greater Than)
-          // Allows newer/fresher captures to successfully overwrite older conquests in the database!
+          // LATEST CONQUEST TIMESTAMPS WIN:
+          // Today's new captures correctly overwrite historical conquests made days ago!
           const shouldOverwrite = !currentZone?.captured_at || 
             new Date(cap.capturedAt) > new Date(currentZone.captured_at);
 

@@ -62,6 +62,7 @@ export function AuthProvider({ children }) {
       if (session) {
         setUser(session.user)
         await fetchProfile(session.user.id)
+        // Cache credentials locally for robust offline startup
         localStorage.setItem('runrajya-cached-user', JSON.stringify(session.user))
       } else {
         setUser(null)
@@ -77,6 +78,7 @@ export function AuthProvider({ children }) {
     }
   }, [])
 
+  // Sync profile data to cache whenever username/color updates
   useEffect(() => {
     if (profile) {
       localStorage.setItem('runrajya-cached-profile', JSON.stringify(profile))

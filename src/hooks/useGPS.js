@@ -42,7 +42,6 @@ export function useGPS(sessionActive) {
           lastPos.current = null
           lastTime.current = null
         } else {
-          // If restoring cache, align refs
           const parsed = JSON.parse(cached)
           setDistance(parsed.distance || 0)
           lastPos.current = null
