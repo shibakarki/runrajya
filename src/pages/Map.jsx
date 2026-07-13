@@ -303,7 +303,7 @@ function GPSHandler({
 }
 
 export default function Map() {
-  const { profile } = useAuth()
+  const { profile, user } = useAuth()
   
   // 1. Hot recovery: Initialize React states directly from localStorage cache if active
   const [sessionActive, setSessionActive] = useState(() => {
@@ -334,10 +334,8 @@ export default function Map() {
   const [profiles, setProfiles] = useState({})
   const [zoom, setZoom] = useState(13)
   
-  // Custom offline-resilient useZones hook loader
-  const { zones, updateZone } = useZones()
-  
   // Track location and compass constantly
+  const { zones, updateZone } = useZones()
   const { position, distance, accuracy, error, heading, requestCompassPermission } = useGPS(sessionActive)
   const { isOnline, syncing, pendingCount, queueTrace, queueCapture } = useOfflineSync()
   const mask = useMemo(() => buildMask(rupandehiBoundary), [])
@@ -580,7 +578,7 @@ export default function Map() {
       const { data, error } = await supabase
         .from('sessions')
         .insert({
-          user_id: profile.id,
+          user_id: profile?.id || user?.id, // Safeguard: prevents undefined database inserts
           started_at: new Date().toISOString(),
           distance_m: 0,
           points: 0,
@@ -668,7 +666,7 @@ export default function Map() {
             heading={heading} // Compass angle state
             sessionActive={sessionActive} // Pulse radar trigger
             zones={zones}
-            userId={profile?.id}
+            userId={profile?.id || user?.id}
             userColor={profile?.color}
             onCapture={handleCapture}
             sessionId={sessionId}
@@ -738,7 +736,7 @@ export default function Map() {
                   height: 24, 
                   objectFit: 'contain',
                   filter: autoCenter 
-                    ? `brightness(0) invert(1) drop-shadow(0 0 4px ${profile?.color || '#3b82f6'})` 
+                    ? 'brightness(0) invert(1) drop-shadow(0 0 4px ' + (profile?.color || '#3b82f6') + ')' 
                     : 'grayscale(100%) opacity(50%)'
                 }} 
               />
