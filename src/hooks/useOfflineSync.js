@@ -1,92 +1,88 @@
-import { useState, useEffect } from 'react'
-import { supabase } from '../lib/supabase'
-import Dexie from 'dexie'
+import { useState, useEffect, useCallback } from 'react';
+import { supabase } from '../lib/supabase';
+import Dexie from 'dexie';
 
-// 1. Initialize and EXPORT the database instance
-export const db = new Dexie('RunRajyaOfflineDBv2')
-
-db.version(2).stores({
+// Initialize IndexedDB
+export const db = new Dexie('RunRajyaDB');
+db.version(3).stores({
   traces: '++id, session_id, recorded_at',
-  captures: '++id, zoneId, userId, capturedAt',
-  zones_grid: 'id, revealed, owner_id'
-})
+  captures: '++id, zone_id, user_id, captured_at',
+  zones_grid: 'id, revealed, owner_id' // Local cache of the map
+});
 
 export function useOfflineSync() {
-  const [isOnline, setIsOnline] = useState(navigator.onLine)
-  const [syncing, setSyncing] = useState(false)
-  const [pendingCount, setPendingCount] = useState(0)
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [syncing, setSyncing] = useState(false);
+  const [pendingCount, setPendingCount] = useState(0);
 
   useEffect(() => {
-    const handleOnline = () => setIsOnline(true)
-    const handleOffline = () => setIsOnline(false)
-    window.addEventListener('online', handleOnline)
-    window.addEventListener('offline', handleOffline)
-
-    const interval = setInterval(async () => {
-      const t = await db.traces.count()
-      const c = await db.captures.count()
-      setPendingCount(t + c)
-    }, 3000)
+    const updateOnlineStatus = () => setIsOnline(navigator.onLine);
+    window.addEventListener('online', updateOnlineStatus);
+    window.addEventListener('offline', updateOnlineStatus);
+    
+    const countInterval = setInterval(async () => {
+      const t = await db.traces.count();
+      const c = await db.captures.count();
+      setPendingCount(t + c);
+    }, 2000);
 
     return () => {
-      window.removeEventListener('online', handleOnline)
-      window.removeEventListener('offline', handleOffline)
-      clearInterval(interval)
-    }
-  }, [])
+      window.removeEventListener('online', updateOnlineStatus);
+      window.removeEventListener('offline', updateOnlineStatus);
+      clearInterval(countInterval);
+    };
+  }, []);
 
-  useEffect(() => {
-    if (isOnline && !syncing) {
-      syncData()
-    }
-  }, [isOnline, syncing])
+  const syncData = useCallback(async () => {
+    if (!isOnline || syncing) return;
+    setSyncing(true);
 
-  async function syncData() {
-    const captureCount = await db.captures.count()
-    const traceCount = await db.traces.count()
-    if (captureCount === 0 && traceCount === 0) return
-
-    setSyncing(true)
     try {
-      // Priority 1: Captures
-      const captures = await db.captures.limit(10).toArray()
-      for (const cap of captures) {
+      // PRIORITY 1: Territory Captures
+      const pendingCaptures = await db.captures.limit(20).toArray();
+      for (const cap of pendingCaptures) {
         const { error } = await supabase
           .from('zones')
           .update({ 
-            owner_id: cap.userId, 
-            captured_at: cap.capturedAt,
+            owner_id: cap.user_id, 
+            captured_at: cap.captured_at,
             contested: cap.contested 
           })
-          .eq('id', cap.zoneId)
+          .eq('id', cap.zone_id);
         
-        if (!error) await db.captures.delete(cap.id)
+        if (!error) await db.captures.delete(cap.id);
       }
 
-      // Priority 2: Traces (Batching 50 at a time)
-      const traces = await db.traces.limit(50).toArray()
-      if (traces.length > 0) {
+      // PRIORITY 2: GPS Traces (Batch Upload)
+      const pendingTraces = await db.traces.limit(100).toArray();
+      if (pendingTraces.length > 0) {
         const { error } = await supabase.from('traces').insert(
-          traces.map(t => ({
+          pendingTraces.map(t => ({
             session_id: t.session_id,
             latitude: t.latitude,
             longitude: t.longitude,
             recorded_at: t.recorded_at
           }))
-        )
-        if (!error) {
-          await db.traces.bulkDelete(traces.map(t => t.id))
-        }
+        );
+        if (!error) await db.traces.bulkDelete(pendingTraces.map(t => t.id));
       }
     } catch (err) {
-      console.error("Sync Logic Error:", err)
+      console.error("Sync Error:", err);
     } finally {
-      setSyncing(false)
+      setSyncing(false);
     }
-  }
+  }, [isOnline, syncing]);
 
-  const queueTrace = async (trace) => await db.traces.add(trace)
-  const queueCapture = async (capture) => await db.captures.add(capture)
+  useEffect(() => {
+    const syncInterval = setInterval(syncData, 5000);
+    return () => clearInterval(syncInterval);
+  }, [syncData]);
 
-  return { isOnline, syncing, pendingCount, queueTrace, queueCapture }
+  return {
+    isOnline,
+    syncing,
+    pendingCount,
+    queueTrace: (t) => db.traces.add(t),
+    queueCapture: (c) => db.captures.add(c)
+  };
 }
