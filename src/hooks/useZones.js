@@ -1,109 +1,46 @@
-import { useState, useEffect, useCallback } from 'react'
-import { supabase } from '../lib/supabase'
-import { openDB } from './useOfflineSync'
+import { useState, useEffect, useCallback } from 'react';
+import { supabase } from '../lib/supabase';
+import { db } from '../lib/db';
 
 export function useZones() {
-  const [zones, setZones] = useState([])
-  const [loading, setLoading] = useState(true)
+  const [zones, setZones] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  // Recursive helper to fetch all 4,814 rows beyond Supabase's 1000 limit
-  const fetchAllSupabaseZones = async () => {
-    let allZones = []
-    let currentRangeStart = 0
-    let currentRangeEnd = 999
-    let keepFetching = true
-
-    while (keepFetching) {
-      const { data, error } = await supabase
-        .from('zones')
-        .select('*')
-        .range(currentRangeStart, currentRangeEnd)
-
-      if (error) {
-        throw error
-      }
-
-      if (data && data.length > 0) {
-        allZones = [...allZones, ...data]
-        currentRangeStart += 1000
-        currentRangeEnd += 1000
-      } else {
-        keepFetching = false
-      }
+  const fetchGrid = useCallback(async () => {
+    // 1. Instant Load from IndexedDB
+    const cached = await db.zones_grid.toArray();
+    if (cached.length > 0) {
+      setZones(cached);
+      setLoading(false);
     }
-    return allZones
-  }
 
-  // Load the grid (online fetch ➔ cache, or offline read from IndexedDB)
-  const loadGridData = useCallback(async () => {
-    try {
-      const db = await openDB()
+    if (navigator.onLine) {
+      // 2. Background update from Supabase (Handles 1000+ limit)
+      let allZones = [];
+      let start = 0;
+      while (true) {
+        const { data, error } = await supabase.from('zones').select('*').range(start, start + 999);
+        if (error || !data || data.length === 0) break;
+        allZones = [...allZones, ...data];
+        start += 1000;
+      }
       
-      // Read local IndexedDB cache first
-      let localCachedZones = []
-      try {
-        const txRead = db.transaction('zones_grid', 'readonly')
-        localCachedZones = await new Promise((res, rej) => {
-          const req = txRead.objectStore('zones_grid').getAll()
-          req.onsuccess = (e) => res(e.target.result)
-          req.onerror = (e) => rej(e.target.error)
-        })
-      } catch (dbErr) {
-        console.warn('Grid store transition state (will resolve on next online sync):', dbErr.message)
+      if (allZones.length > 0) {
+        await db.zones_grid.bulkPut(allZones);
+        setZones(allZones);
       }
-
-      if (navigator.onLine) {
-        console.log('Online — Fetching 4,814 zones from Supabase...')
-        const supabaseZones = await fetchAllSupabaseZones()
-
-        if (supabaseZones.length > 0) {
-          // Write fresh zones directly to local IndexedDB.zones_grid
-          const txWrite = db.transaction('zones_grid', 'readwrite')
-          const store = txWrite.objectStore('zones_grid')
-          store.clear() // Clear old data first
-          
-          supabaseZones.forEach(zone => {
-            store.put(zone)
-          })
-          
-          await new Promise((res) => txWrite.oncomplete = res)
-          setZones(supabaseZones)
-          console.log('Successfully cached 4,814 zones to local IndexedDB.')
-        } else {
-          setZones(localCachedZones)
-        }
-      } else {
-        console.log(`Offline — Serving ${localCachedZones.length} cached zones from IndexedDB.`)
-        setZones(localCachedZones)
-      }
-    } catch (err) {
-      console.warn('Failed to load grid boundaries:', err)
-    } finally {
-      setLoading(false)
     }
-  }, [])
+    setLoading(false);
+  }, []);
 
-  useEffect(() => {
-    loadGridData()
+  useEffect(() => { fetchGrid(); }, [fetchGrid]);
 
-    // Listen to reconnection to re-sync fresh ownership data
-    window.addEventListener('online', loadGridData)
-    return () => window.removeEventListener('online', loadGridData)
-  }, [loadGridData])
+  const updateZone = async (zone) => {
+    // UI Update
+    setZones(prev => prev.map(z => z.id === zone.id ? zone : z));
+    // Local DB Update
+    await db.zones_grid.put(zone);
+  };
 
-  // Optimistic local updater to instantly repaint grid cells on the phone screen
-  const updateZone = useCallback(async (updatedZone) => {
-    setZones(prev => prev.map(z => z.id === updatedZone.id ? updatedZone : z))
-    
-    // Save the painted state to your phone's IndexedDB zones_grid immediately
-    try {
-      const db = await openDB()
-      const tx = db.transaction('zones_grid', 'readwrite')
-      tx.objectStore('zones_grid').put(updatedZone)
-    } catch (err) {
-      console.warn('Failed to cache optimistic update locally:', err)
-    }
-  }, [])
-
-  return { zones, loading, updateZone, reloadGrid: loadGridData }
+  return { zones, loading, updateZone };
 }
