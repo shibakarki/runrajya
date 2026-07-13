@@ -2,8 +2,9 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import Dexie from 'dexie'
 
-// Initialize IndexedDB v2
-const db = new Dexie('RunRajyaOfflineDBv2')
+// 1. Initialize and EXPORT the database instance
+export const db = new Dexie('RunRajyaOfflineDBv2')
+
 db.version(2).stores({
   traces: '++id, session_id, recorded_at',
   captures: '++id, zoneId, userId, capturedAt',
@@ -21,12 +22,11 @@ export function useOfflineSync() {
     window.addEventListener('online', handleOnline)
     window.addEventListener('offline', handleOffline)
 
-    // Update pending count every 5 seconds
     const interval = setInterval(async () => {
       const t = await db.traces.count()
       const c = await db.captures.count()
       setPendingCount(t + c)
-    }, 5000)
+    }, 3000)
 
     return () => {
       window.removeEventListener('online', handleOnline)
@@ -35,7 +35,6 @@ export function useOfflineSync() {
     }
   }, [])
 
-  // THE SYNC ENGINE: Prioritizes Captures over Traces
   useEffect(() => {
     if (isOnline && !syncing) {
       syncData()
@@ -43,10 +42,14 @@ export function useOfflineSync() {
   }, [isOnline, syncing])
 
   async function syncData() {
+    const captureCount = await db.captures.count()
+    const traceCount = await db.traces.count()
+    if (captureCount === 0 && traceCount === 0) return
+
     setSyncing(true)
     try {
-      // 1. SYNC CAPTURES FIRST (Critical Priority)
-      const captures = await db.captures.toArray()
+      // Priority 1: Captures
+      const captures = await db.captures.limit(10).toArray()
       for (const cap of captures) {
         const { error } = await supabase
           .from('zones')
@@ -57,12 +60,10 @@ export function useOfflineSync() {
           })
           .eq('id', cap.zoneId)
         
-        if (!error || error.code === 'PGRST116') {
-          await db.captures.delete(cap.id)
-        }
+        if (!error) await db.captures.delete(cap.id)
       }
 
-      // 2. SYNC TRACES SECOND (Batching to handle large queues)
+      // Priority 2: Traces (Batching 50 at a time)
       const traces = await db.traces.limit(50).toArray()
       if (traces.length > 0) {
         const { error } = await supabase.from('traces').insert(
@@ -74,24 +75,18 @@ export function useOfflineSync() {
           }))
         )
         if (!error) {
-          const ids = traces.map(t => t.id)
-          await db.traces.bulkDelete(ids)
+          await db.traces.bulkDelete(traces.map(t => t.id))
         }
       }
     } catch (err) {
-      console.error("Sync Error:", err)
+      console.error("Sync Logic Error:", err)
     } finally {
       setSyncing(false)
     }
   }
 
-  const queueTrace = async (trace) => {
-    await db.traces.add(trace)
-  }
+  const queueTrace = async (trace) => await db.traces.add(trace)
+  const queueCapture = async (capture) => await db.captures.add(capture)
 
-  const queueCapture = async (capture) => {
-    await db.captures.add(capture)
-  }
-
-  return { isOnline, syncing, pendingCount, queueTrace, queueCapture, db }
+  return { isOnline, syncing, pendingCount, queueTrace, queueCapture }
 }
