@@ -1,4 +1,4 @@
-const CACHE_NAME = 'runrajya-conquest-v8';
+const CACHE_NAME = 'runrajya-conquest-v11';
 
 // Pre-cache core files on installation
 const ASSETS_TO_CACHE = [

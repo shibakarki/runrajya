@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 
 const DB_NAME = 'RunRajyaOfflineDB'
-const DB_VERSION = 2 // UPGRADED: Bumping version to 2 forces browser database schema upgrades!
+const DB_VERSION = 2 // Schema version 2 for local zones_grid support
 
 export function openDB() {
   return new Promise((resolve, reject) => {
@@ -16,7 +16,6 @@ export function openDB() {
       if (!db.objectStoreNames.contains('captures')) {
         db.createObjectStore('captures', { autoIncrement: true })
       }
-      // Bumping version to 2 guarantees this store is successfully generated on all devices
       if (!db.objectStoreNames.contains('zones_grid')) {
         db.createObjectStore('zones_grid', { keyPath: 'id' })
       }
@@ -138,8 +137,10 @@ export function useOfflineSync() {
             continue
           }
 
+          // FIX: Inverted operator corrected to ">" (Greater Than)
+          // Allows newer/fresher captures to successfully overwrite older conquests in the database!
           const shouldOverwrite = !currentZone?.captured_at || 
-            new Date(cap.capturedAt) < new Date(currentZone.captured_at);
+            new Date(cap.capturedAt) > new Date(currentZone.captured_at);
 
           if (shouldOverwrite) {
             const { error: capError } = await fetchWithTimeout(
