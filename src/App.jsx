@@ -1,116 +1,303 @@
-import React, { useState } from 'react';
-import { useAuth } from './context/AuthContext';
-import { useGPS } from './hooks/useGPS';
+import { useState, useEffect, useRef } from 'react'
+import { useAuth } from './context/AuthContext'
+import Auth from './pages/Auth'
+import Landing from './pages/Landing'
+import Map from './pages/Map'
+import Leaderboard from './pages/Leaderboard'
+import Profile from './pages/Profile'
 
-// Existing Pages (Restored)
-import Landing from './pages/Landing';
-import Leaderboard from './pages/Leaderboard';
-import Profile from './pages/Profile';
-
-// New Architecture Pages
-import Citadel from './pages/Citadel';
-import IncursionMap from './pages/Map';
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768)
+  useEffect(() => {
+    const handler = () => setIsMobile(window.innerWidth < 768)
+    window.addEventListener('resize', handler)
+    return () => window.removeEventListener('resize', handler)
+  }, [])
+  return isMobile
+}
 
 export default function App() {
-  const { user, loading } = useAuth();
-  
-  // Navigation State: 'SECTOR' (Citadel), 'RANKS' (Leaderboard), 'PROFILE'
-  const [activeTab, setActiveTab] = useState('SECTOR');
-  
-  // Map Deployment State
-  const [deployed, setDeployed] = useState(false);
-  
-  // GPS Engine (Only runs active sessions when deployed)
-  const { position, metrics, heading, error } = useGPS(deployed);
+  const { user, profile, loading, signOut } = useAuth()
+  const isMobile = useIsMobile()
 
-  // 1. Loading Shield
-  if (loading) {
+  // FIX 3: Initialize page context and landing page states from cache to persist on reload
+  const [page, setPage] = useState(() => {
+    try {
+      return localStorage.getItem('runrajya-active-page') || 'map'
+    } catch {
+      return 'map'
+    }
+  })
+  
+  const [showLanding, setShowLanding] = useState(() => {
+    try {
+      const cached = localStorage.getItem('runrajya-show-landing')
+      return cached !== null ? JSON.parse(cached) : true
+    } catch {
+      return true
+    }
+  })
+
+  // Cache active page tab
+  useEffect(() => {
+    try {
+      localStorage.setItem('runrajya-active-page', page)
+    } catch (err) {
+      console.warn('Failed to cache active page:', err)
+    }
+  }, [page])
+
+  // Cache landing page visibility state
+  useEffect(() => {
+    try {
+      localStorage.setItem('runrajya-show-landing', JSON.stringify(showLanding))
+    } catch (err) {
+      console.warn('Failed to cache landing state:', err)
+    }
+  }, [showLanding])
+
+  // Ask confirmation before signout
+  function handleSignOut() {
+    if (window.confirm("Are you sure you want to sign out and disconnect your session?")) {
+      signOut()
+      setShowLanding(true)
+    }
+  }
+
+  if (loading) return (
+    <div style={{ height: '100dvh', background: '#080810', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <p style={{ color: '#64748b', fontSize: 14 }}>Loading...</p>
+    </div>
+  )
+
+  // Show Landing page if showLanding is true (regardless of auth state)
+  if (showLanding) {
     return (
-      <div className="h-screen w-screen bg-[#050b14] flex items-center justify-center">
-        <div className="w-10 h-10 border-4 border-cyan-500/20 border-t-cyan-500 rounded-full animate-spin"></div>
-      </div>
-    );
+      <Landing 
+        user={user}
+        profile={profile}
+        onGetStarted={() => {
+          setShowLanding(false) // Dismiss landing, proceed to Auth or Map depending on session state below
+        }}
+      />
+    )
   }
 
-  // 2. Auth Gate: If no user, show the Landing Page (which contains the Auth modal)
+  // If landing dismissed and NOT logged in, show Auth
   if (!user) {
-    return <Landing />;
+    return <Auth />
   }
 
-  // 3. Authenticated Citadel Environment
+  // If landing dismissed and IS logged in, render Map & Dashboard UI
   return (
-    <div className="relative overflow-hidden h-screen w-screen bg-[#050b14]">
-      
-      {/* MAIN CONTENT AREA */}
-      <main className="h-full w-full">
-        {activeTab === 'RANKS' && <Leaderboard />}
-        
-        {activeTab === 'SECTOR' && (
-          <Citadel 
-            metrics={metrics} 
-            onDeploy={() => setDeployed(true)} 
-          />
-        )}
-        
-        {activeTab === 'PROFILE' && <Profile />}
-      </main>
+    <div style={{
+      height: '100dvh',
+      width: '100%',
+      display: 'flex',
+      flexDirection: 'column',
+      background: '#080810',
+      overflow: 'hidden',
+      position: 'relative'
+    }}>
 
-      {/* PERSISTENT BOTTOM NAVIGATION (From your mockup) */}
-      {!deployed && (
-        <div className="fixed bottom-6 left-4 right-4 max-w-sm mx-auto bg-slate-950/90 backdrop-blur-lg rounded-2xl border border-slate-800/80 px-6 py-3 flex justify-around items-center shadow-2xl z-40 animate-in fade-in slide-in-from-bottom-4">
-          
-          {/* RANKS (Leaderboard) */}
-          <button 
-            onClick={() => setActiveTab('RANKS')}
-            className={`flex flex-col items-center space-y-1 transition-colors ${activeTab === 'RANKS' ? 'text-cyan-400' : 'text-slate-400'}`}
+      {/* TOP NAVIGATION HUD — Desktop Standard Header, Mobile Dynamic Floating Elements */}
+      {isMobile ? (
+        <>
+          {/* A. Top-Left Floating Faction Brand Logo */}
+          <div 
+            onClick={() => setShowLanding(true)}
+            style={{
+              position: 'fixed', top: 14, left: 14, zIndex: 2000,
+              width: 34, height: 34, borderRadius: 10,
+              background: 'linear-gradient(135deg, #0f1020, #080810)',
+              border: '1.5px solid #1e2042',
+              display: 'flex', alignItems: 'center', justifySelf: 'center', justifyContent: 'center',
+              boxShadow: '0 4px 16px rgba(0,0,0,0.5)', cursor: 'pointer'
+            }}
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
-            </svg>
-            <span className="text-[10px] font-bold tracking-wider uppercase">Ranks</span>
-          </button>
+            <img 
+              src="/logo.svg" 
+              alt="Logo" 
+              style={{ 
+                width: 20, height: 20, objectFit: 'contain',
+                filter: 'brightness(0) invert(1)' 
+              }} 
+            />
+          </div>
 
-          {/* SECTOR (Citadel/Dashboard) */}
-          <button 
-            onClick={() => setActiveTab('SECTOR')}
-            className={`flex flex-col items-center space-y-1 transition-colors ${activeTab === 'SECTOR' ? 'text-cyan-400' : 'text-slate-400'}`}
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 6.75V15m6-6v8m-9 3h12a3 3 0 003-3V7a3 3 0 00-3-3H6a3 3 0 00-3 3v10a3 3 0 003 3z" />
-            </svg>
-            <span className="text-[10px] font-bold tracking-wider uppercase">Sector</span>
-          </button>
+          {/* B. Floating DYNAMIC ISLAND NAVIGATION PILL */}
+          <div style={{
+            position: 'fixed', top: 12, left: '50%', transform: 'translateX(-50%)', zIndex: 2000,
+            background: 'rgba(15, 16, 32, 0.85)',
+            backdropFilter: 'blur(16px)',
+            WebkitBackdropFilter: 'blur(16px)',
+            border: '1px solid #1e2042',
+            padding: 3,
+            borderRadius: 30,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 2,
+            boxShadow: '0 10px 32px rgba(0,0,0,0.7)',
+            transition: 'all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1)'
+          }}>
+            {[
+              { key: 'map', label: '🗺', text: 'Map' },
+              { key: 'leaderboard', label: '🏆', text: 'Ranks' },
+              { key: 'profile', label: '👤', text: 'Me' },
+            ].map(tab => (
+              <button
+                key={tab.key}
+                onClick={() => setPage(tab.key)}
+                style={{
+                  padding: page === tab.key ? '8px 16px' : '8px 12px', 
+                  borderRadius: 20, border: 'none', cursor: 'pointer',
+                  fontSize: 11, fontWeight: 700,
+                  background: page === tab.key ? 'linear-gradient(135deg, #3b82f6, #2563eb)' : 'transparent',
+                  color: page === tab.key ? 'white' : '#64748b',
+                  whiteSpace: 'nowrap', transition: 'all 0.2s ease',
+                  display: 'flex', alignItems: 'center', gap: 4,
+                  outline: 'none'
+                }}
+              >
+                <span>{tab.label}</span>
+                {page === tab.key && <span style={{ fontSize: 10 }}>{tab.text}</span>}
+              </button>
+            ))}
+          </div>
 
-          {/* PROFILE */}
-          <button 
-            onClick={() => setActiveTab('PROFILE')}
-            className={`flex flex-col items-center space-y-1 transition-colors ${activeTab === 'PROFILE' ? 'text-cyan-400' : 'text-slate-400'}`}
+          {/* C. Direct One-Tap Session Logout Button */}
+          <button
+            onClick={handleSignOut}
+            style={{
+              position: 'fixed', top: 14, right: 14, zIndex: 2000,
+              width: 34, height: 34, borderRadius: 10,
+              background: '#0f1020',
+              border: '1.5px solid #1e2042',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: '0 4px 16px rgba(0,0,0,0.5)', cursor: 'pointer',
+              color: '#f43f5e', fontSize: 14, outline: 'none'
+            }}
+            title="Disconnect Session"
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
-            </svg>
-            <span className="text-[10px] font-bold tracking-wider uppercase">Profile</span>
+            🚪
           </button>
+        </>
+      ) : (
+        /* Desktop Traditional Header Layout */
+        <div className="glass" style={{
+          background: 'rgba(15, 16, 32, 0.8)',
+          backdropFilter: 'blur(12px)',
+          WebkitBackdropFilter: 'blur(12px)',
+          borderBottom: '1px solid #1e2042',
+          padding: '0 14px',
+          height: 52,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexShrink: 0,
+          zIndex: 2000,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 100 }}>
+            <button 
+              onClick={() => setShowLanding(true)}
+              style={{
+                width: 28, height: 28, borderRadius: 7,
+                background: 'linear-gradient(135deg, #0f1020, #080810)',
+                border: '1px solid #1e2042',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                flexShrink: 0, cursor: 'pointer', outline: 'none', padding: 0
+              }}
+            >
+              <img src="/logo.svg" alt="Logo" style={{ width: 18, height: 18, objectFit: 'contain', filter: 'brightness(0) invert(1)' }} />
+            </button>
+            <span 
+              onClick={() => setShowLanding(true)}
+              style={{ color: '#e2e8f0', fontSize: 14, fontWeight: 800, letterSpacing: '-0.02em', cursor: 'pointer' }}
+            >
+              Run<span style={{ color: '#3b82f6' }}>Rajya</span>
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ width: 8, height: 8, borderRadius: '50%', background: profile?.color, boxShadow: `0 0 8px ${profile?.color}` }} />
+            <span style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 600 }}>{profile?.username}</span>
+          </div>
+
+          <div style={{ minWidth: 90, display: 'flex', justifyContent: 'flex-end' }}>
+            <button onClick={handleSignOut} style={{ color: '#64748b', fontSize: 12, fontWeight: 500, background: 'none', border: 'none', cursor: 'pointer' }}>
+              Sign out
+            </button>
+          </div>
         </div>
       )}
 
-      {/* INCURSION MAP (Sliding Overlay) */}
-      <div 
-        className={`fixed inset-0 z-50 transition-transform duration-500 ease-in-out ${
-          deployed ? 'translate-y-0' : 'translate-y-full'
-        }`}
-      >
-        {deployed && (
-          <IncursionMap 
-            position={position} 
-            metrics={metrics} 
-            heading={heading} 
-            error={error} 
-            onAbort={() => setDeployed(false)} 
-          />
-        )}
-      </div>
+      {/* Main content */}
+      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
 
+        {/* MAP PAGE */}
+        <div style={{ position: 'absolute', inset: 0, display: page === 'map' ? 'flex' : 'none' }}>
+          <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+            <Map />
+          </div>
+
+          {!isMobile && (
+            <div style={{ position: 'relative', display: 'flex', zIndex: 1500 }}>
+              <div
+                onClick={() => setSidebarOpen(prev => !prev)}
+                style={{
+                  position: 'absolute', left: -28, top: '50%', transform: 'translateY(-50%)',
+                  width: 28, height: 64, background: '#0f1020', border: '1px solid #1e2042', borderRight: 'none',
+                  borderRadius: '8px 0 0 8px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  cursor: 'pointer', zIndex: 1500, color: '#64748b', fontSize: 12,
+                }}
+              >
+                {sidebarOpen ? '▶' : '◀'}
+              </div>
+
+              <div style={{
+                width: sidebarOpen ? 300 : 0, overflow: 'hidden', transition: 'width 0.25s ease',
+                background: '#0f1020', borderLeft: '1px solid #1e2042', flexShrink: 0,
+                display: 'flex', flexDirection: 'column',
+              }}>
+                <div style={{ width: 300, height: '100%', display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ display: 'flex', borderBottom: '1px solid #1a1b2e', flexShrink: 0 }}>
+                    {[
+                      { key: 'ranks', label: '🏆 Rankings' },
+                      { key: 'profile', label: '👤 Profile' },
+                    ].map(tab => (
+                      <button
+                        key={tab.key}
+                        onClick={() => setSidebarTab(tab.key)}
+                        style={{
+                          flex: 1, padding: '10px 0', border: 'none',
+                          borderBottom: sidebarTab === tab.key ? '2px solid #3b82f6' : '2px solid transparent',
+                          background: 'transparent', color: sidebarTab === tab.key ? 'white' : '#64748b',
+                          fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                        }}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{ flex: 1, overflowY: 'auto' }} className="page-enter" key={sidebarTab}>
+                    {sidebarTab === 'ranks' && <Leaderboard sidebar />}
+                    {sidebarTab === 'profile' && <Profile sidebar />}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* MOBILE OVERLAYS */}
+        {isMobile && (
+          <div style={{ position: 'absolute', inset: 0, display: page !== 'map' ? 'block' : 'none', overflowY: 'auto', background: '#080810' }}>
+            {page === 'leaderboard' && <div className="page-enter animate-fade-in" key="leaderboard"><Leaderboard /></div>}
+            {page === 'profile' && <div className="page-enter animate-fade-in" key="profile"><Profile /></div>}
+          </div>
+        )}
+
+      </div>
     </div>
-  );
+  )
 }
