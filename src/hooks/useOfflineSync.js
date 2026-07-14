@@ -7,50 +7,43 @@ export function useOfflineSync() {
   const [syncing, setSyncing] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
 
-  // Monitor Queue and Online Status
   useEffect(() => {
-    const updateStatus = () => setIsOnline(navigator.onLine);
-    window.addEventListener('online', updateStatus);
-    window.addEventListener('offline', updateStatus);
-
-    const interval = setInterval(async () => {
+    const handleStatus = () => setIsOnline(navigator.onLine);
+    window.addEventListener('online', handleStatus);
+    window.addEventListener('offline', handleStatus);
+    
+    const countQueue = setInterval(async () => {
       const t = await db.traces.count();
       const c = await db.captures.count();
       setPendingCount(t + c);
-    }, 2000);
+    }, 3000);
 
     return () => {
-      window.removeEventListener('online', updateStatus);
-      window.removeEventListener('offline', updateStatus);
-      clearInterval(interval);
+      window.removeEventListener('online', handleStatus);
+      window.removeEventListener('offline', handleStatus);
+      clearInterval(countQueue);
     };
   }, []);
 
-  const syncData = useCallback(async () => {
+  const performAtomicSync = useCallback(async () => {
     if (!navigator.onLine || syncing) return;
     setSyncing(true);
 
     try {
-      // 1. HIGH PRIORITY: SYNC CAPTURES FIRST
+      // 1. SYNC CAPTURES (High Priority)
       const captures = await db.captures.limit(20).toArray();
       for (const cap of captures) {
-        const { error } = await supabase
-          .from('zones')
-          .update({ 
-            owner_id: cap.user_id, 
-            captured_at: cap.captured_at,
-            contested: cap.contested,
-            revealed: true 
-          })
-          .eq('id', cap.zone_id);
-        
-        // If success or if record doesn't exist, remove from offline queue
-        if (!error || error.code === 'PGRST116') {
-          await db.captures.delete(cap.id);
-        }
+        const { error } = await supabase.from('zones').update({
+          owner_id: cap.user_id,
+          captured_at: cap.captured_at,
+          contested: cap.contested
+        }).eq('id', cap.zone_id);
+
+        // Atomic Purge: Only delete if Supabase confirmed receipt
+        if (!error) await db.captures.delete(cap.id);
       }
 
-      // 2. BACKGROUND: BATCH SYNC TRACES (Handles large queues efficiently)
+      // 2. SYNC TRACES (Batch Insert)
       const traces = await db.traces.limit(100).toArray();
       if (traces.length > 0) {
         const { error } = await supabase.from('traces').insert(
@@ -61,24 +54,22 @@ export function useOfflineSync() {
             recorded_at: t.recorded_at
           }))
         );
-        if (!error) await db.traces.bulkDelete(traces.map(t => t.id));
+
+        // Atomic Purge: Batch delete on success
+        if (!error) {
+          await db.traces.bulkDelete(traces.map(t => t.id));
+        }
       }
     } catch (err) {
-      console.warn("Sync Interrupted:", err.message);
+      console.warn("Atomic Sync Failure:", err.message);
     } finally {
       setSyncing(false);
     }
   }, [syncing]);
 
   useEffect(() => {
-    if (isOnline) syncData();
-  }, [isOnline, syncData]);
+    if (isOnline) performAtomicSync();
+  }, [isOnline, performAtomicSync]);
 
-  return { 
-    isOnline, 
-    syncing, 
-    pendingCount, 
-    queueTrace: (data) => db.traces.add(data),
-    queueCapture: (data) => db.captures.add(data)
-  };
+  return { isOnline, syncing, pendingCount };
 }

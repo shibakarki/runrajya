@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { db } from '../lib/db';
 
-const ACCURACY_LIMIT = 80;
-const MIN_DISTANCE = 3;
-const SPEED_LIMIT = 6; // ~21km/h
+const MET_WALK = 3.5;
+const MET_JOG = 7.0;
+const MET_RUN = 11.5;
 
 function haversine(lat1, lon1, lat2, lon2) {
   const R = 6371e3;
@@ -12,46 +12,32 @@ function haversine(lat1, lon1, lat2, lon2) {
   const Δφ = (lat2-lat1) * Math.PI/180;
   const Δλ = (lon2-lon1) * Math.PI/180;
   const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2) * Math.sin(Δλ/2);
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-export function useGPS(sessionActive) {
+export function useGPS(sessionActive, weightKg = 70) {
   const [position, setPosition] = useState(null);
-  const [distance, setDistance] = useState(0);
+  const [metrics, setMetrics] = useState({ distance: 0, kcal: 0 });
   const [heading, setHeading] = useState(0);
   const [error, setError] = useState(null);
   
   const lastPos = useRef(null);
   const lastTime = useRef(null);
 
-  // Recovery: Load distance from DB on start
+  // Hot Recovery
   useEffect(() => {
-    db.active_session.get('distance').then(res => {
-      if (res && sessionActive) setDistance(res.value);
+    db.active_session.get('metrics').then(res => {
+      if (res && sessionActive) setMetrics(res.value);
     });
   }, [sessionActive]);
 
-  // Compass Logic
   useEffect(() => {
-    const handleDir = (e) => {
-      const h = e.webkitCompassHeading || (360 - e.alpha);
-      if (h) setHeading(Math.round(h));
-    };
-    window.addEventListener('deviceorientationabsolute', handleDir, true);
-    window.addEventListener('deviceorientation', handleDir, true);
-    return () => {
-      window.removeEventListener('deviceorientationabsolute', handleDir, true);
-      window.removeEventListener('deviceorientation', handleDir, true);
-    };
-  }, []);
+    if (!navigator.geolocation) return setError("GPS_NOT_SUPPORTED");
 
-  useEffect(() => {
-    if (!navigator.geolocation) return setError("GPS Unsupported");
-
-    const watchId = navigator.geolocation.watchPosition(
+    const id = navigator.geolocation.watchPosition(
       (pos) => {
         const { latitude, longitude, accuracy } = pos.coords;
-        if (accuracy > ACCURACY_LIMIT) return setError("Low Signal Accuracy");
+        if (accuracy > 80) return setError("LOW_ACCURACY");
         
         setError(null);
         const current = { lat: latitude, lng: longitude };
@@ -59,13 +45,19 @@ export function useGPS(sessionActive) {
 
         if (sessionActive && lastPos.current) {
           const d = haversine(lastPos.current.lat, lastPos.current.lng, latitude, longitude);
-          const time = (pos.timestamp - lastTime.current) / 1000;
-          const speed = d / time;
+          const timeSec = (pos.timestamp - lastTime.current) / 1000;
+          const speedKmh = (d / timeSec) * 3.6;
 
-          if (d >= MIN_DISTANCE && speed <= SPEED_LIMIT) {
-            setDistance(prev => {
-              const next = prev + d;
-              db.active_session.put({ key: 'distance', value: next });
+          if (d >= 3 && speedKmh < 25) {
+            let met = MET_WALK;
+            if (speedKmh > 6) met = MET_JOG;
+            if (speedKmh > 10) met = MET_RUN;
+
+            const kcalBurned = (met * weightKg * (timeSec / 3600));
+
+            setMetrics(prev => {
+              const next = { distance: prev.distance + d, kcal: prev.kcal + kcalBurned };
+              db.active_session.put({ key: 'metrics', value: next });
               return next;
             });
             lastPos.current = current;
@@ -76,19 +68,12 @@ export function useGPS(sessionActive) {
           lastTime.current = pos.timestamp;
         }
       },
-      (err) => setError("GPS Signal Lost"),
+      (err) => setError("SIGNAL_LOST"),
       { enableHighAccuracy: true, maximumAge: 0 }
     );
 
-    return () => navigator.geolocation.clearWatch(watchId);
-  }, [sessionActive]);
+    return () => navigator.geolocation.clearWatch(id);
+  }, [sessionActive, weightKg]);
 
-  return { 
-    position, distance, heading, error, 
-    requestCompass: async () => {
-      if (typeof DeviceOrientationEvent?.requestPermission === 'function') {
-        return await DeviceOrientationEvent.requestPermission();
-      }
-    }
-  };
+  return { position, metrics, heading, error };
 }
