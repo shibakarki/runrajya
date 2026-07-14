@@ -3,8 +3,8 @@ import { useAuth } from '../context/AuthContext';
 import { db } from '../lib/db';
 
 export default function Citadel({ metrics, onDeploy }) {
-  const { profile } = useAuth();
-  const [goal, setGoal] = useState(5); // Default 5km
+  const { profile, signOut } = useAuth();
+  const [goal, setGoal] = useState(5); 
   const progress = Math.min((metrics.distance / (goal * 1000)) * 100, 100);
 
   useEffect(() => {
@@ -14,8 +14,8 @@ export default function Citadel({ metrics, onDeploy }) {
   }, []);
 
   const handleGoalChange = (val) => {
-    setGoal(val);
-    db.active_session.put({ key: 'goal', value: val });
+    setGoal(Number(val));
+    db.active_session.put({ key: 'goal', value: Number(val) });
   };
 
   return (
@@ -24,10 +24,19 @@ export default function Citadel({ metrics, onDeploy }) {
       {/* Header */}
       <div className="flex justify-between items-center mb-6">
         <div className="flex items-center space-x-2">
-          <div className="w-8 h-8 rounded-lg bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 font-bold">🛡️</div>
+          {/* Click the shield to Sign Out (Added as requested) */}
+          <button 
+            onClick={signOut}
+            className="w-8 h-8 rounded-lg bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 font-bold hover:bg-rose-500/20 hover:border-rose-500 transition-all"
+            title="Sign Out"
+          >
+            🛡️
+          </button>
           <div>
             <h1 className="font-mono text-sm font-black tracking-wider text-cyan-400 uppercase">RunRajya</h1>
-            <p className="text-[9px] text-slate-400 tracking-widest uppercase font-semibold">Rupandehi Citadel</p>
+            <p className="text-[9px] text-slate-400 tracking-widest uppercase font-semibold">
+              {profile?.username || 'EXPLORER'} // RUPANDEHI SECTOR
+            </p>
           </div>
         </div>
         <button onClick={onDeploy} className="bg-gradient-to-r from-cyan-600 to-blue-600 px-5 py-1.5 rounded-xl border border-cyan-400/30 shadow-[0_0_15px_rgba(6,182,212,0.3)] font-black text-xs tracking-widest uppercase">MAP</button>
@@ -49,16 +58,16 @@ export default function Citadel({ metrics, onDeploy }) {
               strokeLinecap="round" className="transition-all duration-1000" />
           </svg>
           <div className="absolute flex flex-col items-center text-center">
-            <span className="text-[9px] tracking-widest text-slate-400 uppercase">Mission</span>
+            <span className="text-[9px] tracking-widest text-slate-400 uppercase">Mission Progress</span>
             <span className="text-4xl font-black font-mono mt-1">{Math.round(progress)}%</span>
-            <span className="text-[8px] text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded-full border border-cyan-500/20 mt-1 font-black uppercase">Live Track</span>
+            <span className="text-[8px] text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded-full border border-cyan-500/20 mt-1 font-black uppercase tracking-widest">Incursion Live</span>
           </div>
         </div>
 
         {/* Goal Slider */}
         <div className="w-full mt-6 border-t border-slate-800/80 pt-4">
-          <div className="flex justify-between items-center text-[10px] mb-2 font-bold">
-            <span className="text-slate-400 uppercase">Operational Goal</span>
+          <div className="flex justify-between items-center text-[10px] mb-2 font-bold uppercase tracking-widest">
+            <span className="text-slate-400">Operational Goal</span>
             <span className="text-cyan-400 font-mono">{goal} km</span>
           </div>
           <input type="range" min="1" max="20" step="1" value={goal} 
@@ -69,8 +78,8 @@ export default function Citadel({ metrics, onDeploy }) {
 
       {/* Action Footer */}
       <div className="mt-6">
-        <button onClick={onDeploy} className="w-full py-4 bg-cyan-600 text-white font-black rounded-2xl text-xs uppercase tracking-widest shadow-xl hover:bg-cyan-500 transition-all">
-          Deploy Incursion
+        <button onClick={onDeploy} className="w-full py-4 bg-cyan-600 hover:bg-cyan-500 text-white font-black rounded-2xl text-xs uppercase tracking-widest shadow-xl transition-all border border-cyan-400/20">
+          Initialize Incursion
         </button>
       </div>
 
