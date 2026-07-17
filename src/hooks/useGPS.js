@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { db } from '../lib/db';
 
-const MET_WALK = 3.5;
-const MET_JOG = 7.0;
-const MET_RUN = 11.5;
+const ACCURACY_LIMIT = 80;
+const MIN_DISTANCE = 3;
+const SPEED_LIMIT = 6; // ~21km/h
 
 function haversine(lat1, lon1, lat2, lon2) {
   const R = 6371e3;
@@ -12,32 +12,46 @@ function haversine(lat1, lon1, lat2, lon2) {
   const Δφ = (lat2-lat1) * Math.PI/180;
   const Δλ = (lon2-lon1) * Math.PI/180;
   const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2) * Math.sin(Δλ/2);
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
 
-export function useGPS(sessionActive, weightKg = 70) {
+export function useGPS(sessionActive) {
   const [position, setPosition] = useState(null);
-  const [metrics, setMetrics] = useState({ distance: 0, kcal: 0 });
+  const [distance, setDistance] = useState(0);
   const [heading, setHeading] = useState(0);
   const [error, setError] = useState(null);
   
   const lastPos = useRef(null);
   const lastTime = useRef(null);
 
-  // Hot Recovery
+  // Recovery: Load distance from DB on start
   useEffect(() => {
-    db.active_session.get('metrics').then(res => {
-      if (res && sessionActive) setMetrics(res.value);
+    db.active_session.get('distance').then(res => {
+      if (res && sessionActive) setDistance(res.value);
     });
   }, [sessionActive]);
 
+  // Compass Logic
   useEffect(() => {
-    if (!navigator.geolocation) return setError("GPS_NOT_SUPPORTED");
+    const handleDir = (e) => {
+      const h = e.webkitCompassHeading || (360 - e.alpha);
+      if (h) setHeading(Math.round(h));
+    };
+    window.addEventListener('deviceorientationabsolute', handleDir, true);
+    window.addEventListener('deviceorientation', handleDir, true);
+    return () => {
+      window.removeEventListener('deviceorientationabsolute', handleDir, true);
+      window.removeEventListener('deviceorientation', handleDir, true);
+    };
+  }, []);
 
-    const id = navigator.geolocation.watchPosition(
+  useEffect(() => {
+    if (!navigator.geolocation) return setError("GPS Unsupported");
+
+    const watchId = navigator.geolocation.watchPosition(
       (pos) => {
         const { latitude, longitude, accuracy } = pos.coords;
-        if (accuracy > 80) return setError("LOW_ACCURACY");
+        if (accuracy > ACCURACY_LIMIT) return setError("Low Signal Accuracy");
         
         setError(null);
         const current = { lat: latitude, lng: longitude };
@@ -45,19 +59,13 @@ export function useGPS(sessionActive, weightKg = 70) {
 
         if (sessionActive && lastPos.current) {
           const d = haversine(lastPos.current.lat, lastPos.current.lng, latitude, longitude);
-          const timeSec = (pos.timestamp - lastTime.current) / 1000;
-          const speedKmh = (d / timeSec) * 3.6;
+          const time = (pos.timestamp - lastTime.current) / 1000;
+          const speed = d / time;
 
-          if (d >= 3 && speedKmh < 25) {
-            let met = MET_WALK;
-            if (speedKmh > 6) met = MET_JOG;
-            if (speedKmh > 10) met = MET_RUN;
-
-            const kcalBurned = (met * weightKg * (timeSec / 3600));
-
-            setMetrics(prev => {
-              const next = { distance: prev.distance + d, kcal: prev.kcal + kcalBurned };
-              db.active_session.put({ key: 'metrics', value: next });
+          if (d >= MIN_DISTANCE && speed <= SPEED_LIMIT) {
+            setDistance(prev => {
+              const next = prev + d;
+              db.active_session.put({ key: 'distance', value: next });
               return next;
             });
             lastPos.current = current;
@@ -68,12 +76,19 @@ export function useGPS(sessionActive, weightKg = 70) {
           lastTime.current = pos.timestamp;
         }
       },
-      (err) => setError("SIGNAL_LOST"),
+      (err) => setError("GPS Signal Lost"),
       { enableHighAccuracy: true, maximumAge: 0 }
     );
 
-    return () => navigator.geolocation.clearWatch(id);
-  }, [sessionActive, weightKg]);
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, [sessionActive]);
 
-  return { position, metrics, heading, error };
+  return { 
+    position, distance, heading, error, 
+    requestCompass: async () => {
+      if (typeof DeviceOrientationEvent?.requestPermission === 'function') {
+        return await DeviceOrientationEvent.requestPermission();
+      }
+    }
+  };
 }
