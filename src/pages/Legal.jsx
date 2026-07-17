@@ -20,26 +20,87 @@ export default function Legal({ initialTab = 'CONTACT', onClose }) {
 
   return (
     <div style={{
-      position: 'fixed', inset: 0, zIndex: 5000, background: 'rgba(5, 11, 20, 0.95)',
-      backdropFilter: 'blur(10px)', padding: 24, display: 'flex', flexDirection: 'column'
+      position: 'fixed', 
+      inset: 0, 
+      zIndex: 5000, 
+      background: 'rgba(5, 11, 20, 0.98)',
+      backdropFilter: 'blur(15px)', 
+      /* 
+         ADJUSTMENT: 
+         We use 90px top padding to clear the custom navigation island pill 
+         plus env(safe-area-inset-top) for the phone's hardware notch.
+      */
+      padding: 'calc(env(safe-area-inset-top) + 90px) 24px 24px 24px', 
+      display: 'flex', 
+      flexDirection: 'column',
+      boxSizing: 'border-box'
     }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-        <h2 style={{ color: '#06b6d4', fontWeight: 900, fontSize: 18, textTransform: 'uppercase', margin: 0 }}>
+      
+      {/* HEADER AREA */}
+      <div style={{ 
+        display: 'flex', 
+        justifyContent: 'space-between', 
+        alignItems: 'center', 
+        marginBottom: 24 
+      }}>
+        <h2 style={{ 
+          color: '#06b6d4', 
+          fontWeight: 900, 
+          fontSize: 18, 
+          textTransform: 'uppercase', 
+          margin: 0,
+          letterSpacing: '-0.02em'
+        }}>
           {content[tab].title}
         </h2>
-        <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: 24, fontWeight: 'bold', cursor: 'pointer' }}>✕</button>
+        
+        {/* Close Button: Styled to look like a tactical reset button */}
+        <button 
+          onClick={onClose} 
+          style={{ 
+            background: '#14152a', 
+            border: '1px solid #1e2042', 
+            borderRadius: '12px',
+            width: '40px',
+            height: '40px',
+            color: '#ef4444', 
+            fontSize: '18px', 
+            fontWeight: 'bold', 
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
+          }}
+        >
+          ✕
+        </button>
       </div>
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+      {/* TACTICAL TAB SWITCHER */}
+      <div style={{ 
+        display: 'flex', 
+        gap: 8, 
+        marginBottom: 20,
+        overflowX: 'auto',
+        paddingBottom: '4px'
+      }} className="no-scrollbar">
         {['CONTACT', 'PRIVACY', 'TERMS'].map(t => (
           <button 
             key={t}
             onClick={() => setTab(t)}
             style={{
-              padding: '8px 12px', borderRadius: 8, fontSize: 10, fontWeight: 900,
+              padding: '12px 20px', 
+              borderRadius: '14px', 
+              fontSize: '10px', 
+              fontWeight: 900,
+              whiteSpace: 'nowrap',
               background: tab === t ? '#06b6d4' : '#14152a',
               color: tab === t ? '#000' : '#64748b',
-              border: 'none', cursor: 'pointer', transition: '0.2s'
+              border: tab === t ? 'none' : '1px solid #1e2042', 
+              cursor: 'pointer', 
+              transition: 'all 0.2s ease',
+              letterSpacing: '0.1em'
             }}
           >
             {t}
@@ -47,13 +108,39 @@ export default function Legal({ initialTab = 'CONTACT', onClose }) {
         ))}
       </div>
 
-      <div style={{ flex: 1, background: '#0f1020', borderRadius: 16, border: '1px solid #1e2042', padding: 20, color: '#94a3b8', fontSize: 13, lineHeight: '1.6' }}>
+      {/* CONTENT BOX */}
+      <div style={{ 
+        flex: 1, 
+        background: '#0f1020', 
+        borderRadius: '24px', 
+        border: '1px solid #1e2042', 
+        padding: '24px', 
+        color: '#94a3b8', 
+        fontSize: '14px', 
+        lineHeight: '1.7',
+        overflowY: 'auto',
+        boxShadow: 'inset 0 2px 10px rgba(0,0,0,0.5)'
+      }}>
         {content[tab].text}
       </div>
 
-      <p style={{ textAlign: 'center', color: '#1e2042', fontSize: 9, fontWeight: 900, marginTop: 24, letterSpacing: 4 }}>
-        RUNRAJYA TACTICAL HUD V2.0
-      </p>
+      {/* FOOTER */}
+      <div style={{ 
+        marginTop: 24, 
+        paddingBottom: 'env(safe-area-inset-bottom)',
+        textAlign: 'center'
+      }}>
+        <p style={{ 
+          color: '#1e2042', 
+          fontSize: '9px', 
+          fontWeight: 900, 
+          margin: 0,
+          letterSpacing: '5px',
+          textTransform: 'uppercase'
+        }}>
+          Tactical Hudson Protocol
+        </p>
+      </div>
     </div>
   );
 }
