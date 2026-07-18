@@ -1,4 +1,4 @@
-import { MapContainer, TileLayer, Marker, ZoomControl, Rectangle, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, GeoJSON, Rectangle, Marker, ZoomControl, useMap } from 'react-leaflet';
 import { useState, useMemo, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useZones } from '../hooks/useZones';
@@ -33,6 +33,7 @@ export default function MapPage() {
   const [pocketMode, setPocketMode] = useState(false);
   const [autoCenter, setAutoCenter] = useState(true);
 
+  // Capture Engine
   useEffect(() => {
     if (!position || !sessionActive || !userId) return;
     zones.forEach(zone => {
@@ -61,30 +62,40 @@ export default function MapPage() {
   }, [position, heading, profile]);
 
   return (
-    <div className="flex flex-col md:flex-row h-screen w-screen bg-[#080810] overflow-hidden">
+    <div className="flex flex-col md:flex-row h-screen w-screen bg-[#080810] overflow-hidden pt-20 md:pt-0">
       
-      {/* MAP AREA: 65% on Mobile, Full width minus sidebar on Desktop */}
+      {/* 1. TACTICAL SATELLITE MAP (65% Mobile) */}
       <div className="w-full h-[65%] md:h-full md:flex-1 relative border-b md:border-b-0 md:border-r border-[#1e2042]">
         <MapContainer center={[27.55, 83.42]} zoom={13} style={{ height: '100%', width: '100%' }} zoomControl={false}>
           <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" />
+          
           <TacticalMask boundaryData={rupandehiBoundary} />
+
           {zones.filter(z => z.revealed).map(zone => (
             <Rectangle key={zone.id} bounds={[[zone.lat_min, zone.lng_min], [zone.lat_max, zone.lng_max]]} 
-              pathOptions={{ fillColor: zone.owner_id ? (zone.owner_id === userId ? profile?.color : '#ff4757') : '#fff', fillOpacity: 0.3, weight: 0.5 }} />
+              pathOptions={{ 
+                fillColor: zone.owner_id ? (zone.owner_id === userId ? profile?.color : '#ff4757') : '#fff', 
+                fillOpacity: zone.owner_id ? 0.3 : 0.05, 
+                weight: 0.5,
+                color: '#ffffff22'
+              }} 
+            />
           ))}
+
           {position && <Marker position={[position.lat, position.lng]} icon={compassIcon} />}
           <MapAutoCenter position={position} autoCenter={autoCenter} />
           <ZoomControl position="bottomleft" />
         </MapContainer>
 
+        {/* GPS ALERT BAR */}
         {error && (
-          <div className="absolute top-24 left-4 right-4 z-[1000] bg-red-900/90 border border-red-500/50 p-3 rounded-xl text-[10px] text-white font-black text-center uppercase tracking-[0.2em] shadow-2xl backdrop-blur-md">
+          <div className="absolute top-4 left-4 right-4 z-[1000] bg-red-900/90 border border-red-500/50 p-3 rounded-xl text-[10px] text-white font-black text-center uppercase tracking-widest shadow-2xl backdrop-blur-md">
             {error}
           </div>
         )}
       </div>
 
-      {/* CONSOLE AREA: 35% on Mobile, 400px Sidebar on Desktop */}
+      {/* 2. ATHLETIC CONSOLE (35% Mobile) */}
       <div className="w-full h-[35%] md:h-full md:w-[400px] bg-[#0f1020] p-4 md:p-8 z-20 shadow-[-10px_0_30px_rgba(0,0,0,0.5)]">
         <AthleticConsole 
           sessionActive={sessionActive}
@@ -93,13 +104,14 @@ export default function MapPage() {
           autoCenter={autoCenter}
           setAutoCenter={setAutoCenter}
           onAction={() => {
-            if(!sessionActive) requestCompass();
+            if(!sessionActive) requestCompass?.();
             setSessionActive(!sessionActive);
           }}
           onLock={() => setPocketMode(true)}
         />
       </div>
 
+      {/* 3. POCKET LOCK OVERLAY */}
       {pocketMode && (
         <PocketLock 
           distance={distance} 
