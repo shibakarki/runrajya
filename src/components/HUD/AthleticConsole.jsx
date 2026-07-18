@@ -37,7 +37,7 @@ export default function AthleticConsole({ sessionActive, metrics, syncData, auto
           {autoCenter ? '🎯 Locked' : '🔓 Free'}
         </button>
         <button onTouchStart={onLock} className="py-4 bg-white/5 border border-white/10 rounded-2xl text-[10px] font-black text-white uppercase">
-          🔒 Hold Lock
+          🔒 Lock
         </button>
       </div>
 
