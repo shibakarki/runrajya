@@ -8,92 +8,68 @@ export function AuthProvider({ children }) {
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
 
-  // Fetch user profile securely
-  async function fetchProfile(userId) {
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .single()
-      if (data && !error) {
-        setProfile(data)
-      }
-    } catch (err) {
-      console.warn('Could not fetch profile (might be offline):', err)
-    }
-  }
-
   useEffect(() => {
-    // 1. Get initial session on boot
-    async function getInitialSession() {
+    // FAILSAFE: If auth doesn't resolve in 3.5 seconds, stop the loading screen
+    const failsafe = setTimeout(() => {
+      if (loading) {
+        console.warn("Auth took too long, bypassing loading screen...");
+        setLoading(false);
+      }
+    }, 3500);
+
+    async function initSession() {
       try {
-        const { data: { session } } = await supabase.auth.getSession()
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (error) throw error;
+
         if (session) {
-          setUser(session.user)
-          await fetchProfile(session.user.id)
+          setUser(session.user);
+          const { data: prof } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', session.user.id)
+            .single();
+          setProfile(prof);
         }
       } catch (err) {
-        console.warn('Initial session fetch failed (offline context):', err)
-        // If offline, check if we have cached credentials to bypass the loading screen
-        try {
-          const cachedUser = JSON.parse(localStorage.getItem('runrajya-cached-user'))
-          const cachedProfile = JSON.parse(localStorage.getItem('runrajya-cached-profile'))
-          if (cachedUser) {
-            setUser(cachedUser)
-            setProfile(cachedProfile)
-          }
-        } catch {}
+        console.error("Auth initialization error:", err);
       } finally {
-        setLoading(false)
+        setLoading(false);
+        clearTimeout(failsafe);
       }
     }
 
-    getInitialSession()
+    initSession();
 
-    // 2. Listen to authentication transitions
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      // GUARD: If offline, completely IGNORE token-refresh failures or session invalidations!
-      if (!navigator.onLine && !session) {
-        console.warn('Ignoring auth state invalidation while offline.')
-        return
-      }
-
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (session) {
-        setUser(session.user)
-        await fetchProfile(session.user.id)
-        // Cache credentials locally for robust offline startup
-        localStorage.setItem('runrajya-cached-user', JSON.stringify(session.user))
+        setUser(session.user);
+        const { data: prof } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', session.user.id)
+          .single();
+        setProfile(prof);
       } else {
-        setUser(null)
-        setProfile(null)
-        localStorage.removeItem('runrajya-cached-user')
-        localStorage.removeItem('runrajya-cached-profile')
+        setUser(null);
+        setProfile(null);
       }
-      setLoading(false)
-    })
+      setLoading(false);
+    });
 
     return () => {
-      if (subscription) subscription.unsubscribe()
-    }
-  }, [])
+      if (subscription) subscription.unsubscribe();
+      clearTimeout(failsafe);
+    };
+  }, []);
 
-  // Sync profile data to cache whenever username/color updates
-  useEffect(() => {
-    if (profile) {
-      localStorage.setItem('runrajya-cached-profile', JSON.stringify(profile))
-    }
-  }, [profile])
-
-  async function signOut() {
-    setLoading(true)
-    await supabase.auth.signOut()
-    setUser(null)
-    setProfile(null)
-    localStorage.removeItem('runrajya-cached-user')
-    localStorage.removeItem('runrajya-cached-profile')
-    setLoading(false)
-  }
+  const signOut = async () => {
+    await supabase.auth.signOut();
+    setUser(null);
+    setProfile(null);
+    // Clear local storage for a clean reset on sign out
+    localStorage.removeItem('runrajya-active-run');
+  };
 
   return (
     <AuthContext.Provider value={{ user, profile, loading, signOut }}>
@@ -102,6 +78,4 @@ export function AuthProvider({ children }) {
   )
 }
 
-export function useAuth() {
-  return useContext(AuthContext)
-}
+export const useAuth = () => useContext(AuthContext)

@@ -1,28 +1,35 @@
-const CACHE_NAME = 'runrajya-v2';
-const ASSETS_TO_CACHE = [
-  '/',
-  '/index.html',
-  '/logo.svg',
-  '/favicon.svg'
-];
+const CACHE_NAME = 'runrajya-tactical-v4';
 
-// 1. Install & Cache Shell
+// 1. Force immediate activation of new code
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS_TO_CACHE))
-  );
   self.skipWaiting();
 });
 
-// 2. Network-First Strategy (The "Stucking" Fix)
+// 2. Clean Sweep: Deletes every single old cache found in the browser
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys().then((keys) => {
+      return Promise.all(
+        keys.map((key) => {
+          if (key !== CACHE_NAME) {
+            console.log('Clearing old cache:', key);
+            return caches.delete(key);
+          }
+        })
+      );
+    })
+  );
+  self.clients.claim();
+});
+
+// 3. Network-First logic (Fetch fresh site, fallback to cache only if offline)
 self.addEventListener('fetch', (event) => {
-  // We only handle GET requests
   if (event.request.method !== 'GET') return;
 
   event.respondWith(
     fetch(event.request)
       .then((response) => {
-        // If network is successful, update the cache with the fresh version
+        // If network works, update the cache for later offline use
         const resClone = response.clone();
         caches.open(CACHE_NAME).then((cache) => {
           cache.put(event.request, resClone);
@@ -30,17 +37,12 @@ self.addEventListener('fetch', (event) => {
         return response;
       })
       .catch(() => {
-        // If network fails (OFFLINE), return the cached version
-        return caches.match(event.request);
+        // If network fails (Offline), return the cached version
+        return caches.match(event.request).then((cachedResponse) => {
+          if (cachedResponse) return cachedResponse;
+          // If the specific file isn't cached, return the root (index.html)
+          if (event.request.mode === 'navigate') return caches.match('/');
+        });
       })
-  );
-});
-
-// 3. Clean up old caches
-self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((keys) => {
-      return Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)));
-    })
   );
 });
