@@ -8,17 +8,63 @@ import { db } from '../lib/db';
 import rupandehiBoundary from '../data/rupandehi_boundary.json';
 import L from 'leaflet';
 
-// 1. STAT BOX COMPONENT
+// --- TACTICAL UTILITIES ---
+
+/**
+ * buildMask: Creates an inverted polygon (a hole)
+ * This darkens the entire world except for the Rupandehi district.
+ */
+function buildMask(geoJsonFeature) {
+  // Extract coordinates. Handling both Polygon and MultiPolygon types
+  const coords = geoJsonFeature.geometry.type === 'Polygon' 
+    ? geoJsonFeature.geometry.coordinates 
+    : geoJsonFeature.geometry.coordinates[0];
+
+  // The giant world square coordinates
+  const worldOuter = [
+    [180, -180],
+    [180, 180],
+    [-180, 180],
+    [-180, -180],
+    [180, -180]
+  ];
+
+  return {
+    type: 'Feature',
+    geometry: {
+      type: 'Polygon',
+      // Leaflet cuts a hole when the second array in coordinates is the inner shape
+      coordinates: [worldOuter.map(c => [c[1], c[0]]), ...coords]
+    }
+  };
+}
+
+const maskStyle = {
+  fillColor: '#000000',
+  fillOpacity: 0.75, // Adjust this (0.0 to 1.0) to make the outside darker/lighter
+  color: 'transparent',
+  stroke: false,
+  interactive: false
+};
+
+const districtBorderStyle = {
+  color: '#06b6d4', // Tactical Cyan
+  weight: 2,
+  opacity: 0.8,
+  fillOpacity: 0,
+  dashArray: '10, 10', // Dashed line for "Sector Border" look
+  interactive: false
+};
+
 function StatBox({ label, val, color = '#fff' }) {
   return (
-    <div className="bg-white/5 p-3 rounded-2xl border border-white/5 text-center">
-      <div className="text-[8px] font-bold text-slate-500 uppercase mb-1 tracking-widest">{label}</div>
-      <div className="text-lg font-black" style={{ color }}>{val}</div>
+    <div className="bg-white/5 p-3 rounded-2xl border border-white/5 text-center shadow-lg">
+      <div className="text-[8px] font-black text-slate-500 uppercase mb-1 tracking-[0.1em]">{label}</div>
+      <div className="text-xl font-black font-mono" style={{ color }}>{val}</div>
     </div>
   );
 }
 
-// 2. MAP CONTROLLER
 function MapController({ position, autoCenter, setAutoCenter }) {
   const map = useMap();
   useMapEvents({ dragstart: () => setAutoCenter(false) });
@@ -28,18 +74,17 @@ function MapController({ position, autoCenter, setAutoCenter }) {
   return null;
 }
 
-// 3. MAIN MAP PAGE
+// --- MAIN COMPONENT ---
+
 export default function Map() {
   const { profile, user } = useAuth();
   const userId = profile?.id || user?.id;
 
-  // SYSTEM HOOKS
   const { zones, updateZone } = useZones();
   const { isOnline, pendingCount, queueTrace, queueCapture } = useOfflineSync();
   const [sessionActive, setSessionActive] = useState(false);
   const { position, distance, heading, error, requestCompass } = useGPS(sessionActive);
 
-  // TACTICAL STATE
   const [sessionId, setSessionId] = useState(null);
   const [points, setPoints] = useState(0);
   const [capturedCount, setCapturedCount] = useState(0);
@@ -51,7 +96,10 @@ export default function Map() {
 
   const lockTimer = useRef(null);
 
-  // 1. Hot Recovery
+  // Generate the mask only once
+  const invertedMask = useMemo(() => buildMask(rupandehiBoundary), []);
+
+  // Hot Recovery
   useEffect(() => {
     db.active_session.get('active').then(res => {
       if (res?.value) {
@@ -63,7 +111,7 @@ export default function Map() {
     });
   }, []);
 
-  // 2. Capture Engine
+  // Territory Capture Engine
   useEffect(() => {
     if (!position || !sessionActive || !userId) return;
 
@@ -96,33 +144,23 @@ export default function Map() {
     });
   }, [position, sessionActive, userId]);
 
-  // 3. Command Functions
   const startConquest = async () => {
     setShowPreSessionModal(false);
     if (requestCompass) await requestCompass();
-    
     const sid = `RR-${Date.now()}`;
     setSessionId(sid);
     setSessionActive(true);
-    
     db.active_session.bulkPut([
-      { key: 'active', value: true },
-      { key: 'sessionId', value: sid },
-      { key: 'distance', value: 0 },
-      { key: 'points', value: 0 },
-      { key: 'grids', value: 0 }
+      { key: 'active', value: true }, { key: 'sessionId', value: sid },
+      { key: 'distance', value: 0 }, { key: 'points', value: 0 }, { key: 'grids', value: 0 }
     ]);
   };
 
   const endConquest = () => {
     db.active_session.clear();
-    setSessionActive(false);
-    setPoints(0);
-    setCapturedCount(0);
-    setPocketMode(false);
+    setSessionActive(false); setPoints(0); setCapturedCount(0); setPocketMode(false);
   };
 
-  // 4. Custom Icon
   const compassIcon = useMemo(() => {
     if (!position) return null;
     const color = profile?.color || '#3b82f6';
@@ -131,9 +169,9 @@ export default function Map() {
       html: `
         <div style="position:relative;width:40px;height:40px;display:flex;align-items:center;justify-content:center;">
           ${sessionActive ? '<div class="radar-pulse"></div>' : ''}
-          <div style="transform:rotate(${heading}deg);position:absolute;width:100px;height:100px;background:radial-gradient(circle at 50% 50%, ${color}44 0%, transparent 70%);clip-path:polygon(50% 50%, 25% 0%, 75% 0%);"></div>
-          <div style="width:14px;height:14px;background:white;border-radius:50%;z-index:10;box-shadow:0 2px 10px rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;">
-             <div style="width:10px;height:10px;background:${color};border-radius:50%;"></div>
+          <div style="transform:rotate(${heading}deg);position:absolute;width:100px;height:100px;background:radial-gradient(circle at 50% 50%, ${color}44 0%, transparent 70%);clip-path:polygon(50% 50%, 25% 0%, 75% 0%); z-index:1;"></div>
+          <div style="width:16px;height:16px;background:white;border-radius:50%;z-index:10;box-shadow:0 2px 10px rgba(0,0,0,0.8);display:flex;align-items:center;justify-content:center;border:2px solid ${color};">
+             <div style="width:8px;height:8px;background:${color};border-radius:50%;"></div>
           </div>
         </div>
         <style>
@@ -148,42 +186,52 @@ export default function Map() {
   return (
     <div className="flex flex-col h-full w-full bg-[#080810] fixed inset-0 overflow-hidden">
       
-      {/* MAP CANVAS (65%) */}
+      {/* 1. MAP SECTION (65%) */}
       <div className="h-[65%] w-full relative border-b border-[#1e2042]">
-        <MapContainer center={[27.55, 83.42]} zoom={13} style={{ height: '100%' }} zoomControl={false}>
-          <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-          <GeoJSON data={rupandehiBoundary} style={{ color: '#fff', weight: 1.5, opacity: 0.3, fillOpacity: 0 }} />
+        <MapContainer center={[27.55, 83.42]} zoom={13} style={{ height: '100%', width: '100%' }} zoomControl={false}>
+          {/* HIGH-RES SATELLITE LAYER */}
+          <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" />
+          
+          {/* THE MASK (Highlights Rupandehi) */}
+          <GeoJSON data={invertedMask} style={maskStyle} />
+          
+          {/* THE BORDER (Cyan Perimeter) */}
+          <GeoJSON data={rupandehiBoundary} style={districtBorderStyle} />
+
+          {/* THE CAPTURED GRID */}
           {zones.filter(z => z.revealed).map(zone => (
             <Rectangle 
               key={zone.id} 
               bounds={[[zone.lat_min, zone.lng_min], [zone.lat_max, zone.lng_max]]} 
               pathOptions={{
                 fillColor: zone.owner_id ? (zone.owner_id === userId ? profile?.color : '#ff4757') : '#fff',
-                fillOpacity: zone.owner_id ? 0.4 : 0.05,
+                fillOpacity: zone.owner_id ? 0.3 : 0.05,
                 weight: 0.5,
                 color: '#ffffff33'
               }}
             />
           ))}
+
           {position && <Marker position={[position.lat, position.lng]} icon={compassIcon} />}
           <MapController position={position} autoCenter={autoCenter} setAutoCenter={setAutoCenter} />
           <ZoomControl position="bottomleft" />
         </MapContainer>
         
+        {/* GPS NOTIFICATION */}
         {error && (
-          <div className="absolute top-20 left-4 right-4 z-[1000] bg-red-600/90 p-3 rounded-xl text-[10px] text-white font-black uppercase tracking-widest text-center shadow-2xl">
+          <div className="absolute top-24 left-4 right-4 z-[1000] bg-red-600/90 p-3 rounded-xl text-[10px] text-white font-black uppercase tracking-widest text-center shadow-2xl">
             {error}
           </div>
         )}
       </div>
 
-      {/* ATHLETIC CONSOLE (35%) */}
+      {/* 2. CONSOLE SECTION (35%) */}
       <div className="h-[35%] w-full bg-[#0f1020] p-6 flex flex-col justify-between z-20">
         {sessionActive ? (
           <>
             <div className="flex justify-between items-center text-[10px] font-black text-slate-500 uppercase tracking-widest">
-              <span>{isOnline ? '🟢 Live' : '🔴 Offline'}</span>
-              <span>Queue: {pendingCount}</span>
+              <span>{isOnline ? '🟢 Live Uplink' : '🔴 Offline Mode'}</span>
+              <span>Pending: {pendingCount}</span>
             </div>
 
             <div className="grid grid-cols-3 gap-3">
@@ -193,8 +241,8 @@ export default function Map() {
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              <button onClick={() => setAutoCenter(!autoCenter)} className="py-4 bg-white/5 border border-white/10 rounded-2xl text-[10px] font-black text-white uppercase">
-                {autoCenter ? '🎯 Locked' : '🔓 Free'}
+              <button onClick={() => setAutoCenter(!autoCenter)} className={`py-4 rounded-2xl text-[10px] font-black uppercase border transition-all ${autoCenter ? 'bg-cyan-500/10 border-cyan-500/50 text-cyan-400' : 'bg-white/5 border-white/10 text-white'}`}>
+                {autoCenter ? '🎯 Tracking' : '🔓 Free Cam'}
               </button>
               <button 
                 onTouchStart={() => {
@@ -209,7 +257,7 @@ export default function Map() {
                 className="py-4 bg-white/5 border border-white/10 rounded-2xl text-[10px] font-black text-white relative overflow-hidden uppercase"
               >
                 <div className="absolute inset-y-0 left-0 bg-blue-500/20" style={{ width: `${lockHold}%` }} />
-                🔒 Hold to Lock
+                🔒 Lock
               </button>
             </div>
 
@@ -230,25 +278,26 @@ export default function Map() {
         )}
       </div>
 
-      {/* MODAL: PRE-SESSION */}
+      {/* --- OVERLAYS --- */}
+
       {showPreSessionModal && (
         <div className="fixed inset-0 z-[5000] bg-black/95 backdrop-blur-xl flex items-center justify-center p-8">
           <div className="bg-[#0f1020] border border-white/10 w-full max-w-sm rounded-[40px] p-10 text-center shadow-2xl">
             <div className="text-6xl mb-6">🛰️</div>
-            <h2 className="text-white text-2xl font-black mb-3">Tactical Sync</h2>
-            <p className="text-slate-400 text-xs font-medium leading-relaxed uppercase tracking-wide mb-10">Step outdoors. Ensure High-Accuracy GPS is enabled.</p>
+            <h2 className="text-white text-2xl font-black mb-3 uppercase italic">Tactical Sync</h2>
+            <p className="text-slate-400 text-xs font-medium leading-relaxed uppercase tracking-wide mb-10">Go outdoors. High-Accuracy GPS required for sector security.</p>
             <div className="flex flex-col gap-3">
-              <button onClick={startConquest} className="w-full py-5 bg-blue-600 text-white font-black rounded-2xl text-xs uppercase tracking-widest">Start Now</button>
+              <button onClick={startConquest} className="w-full py-5 bg-blue-600 text-white font-black rounded-2xl text-xs uppercase tracking-widest shadow-xl">Deploy</button>
               <button onClick={() => setShowPreSessionModal(false)} className="w-full py-5 text-slate-500 font-black text-xs uppercase tracking-widest">Cancel</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* POCKET LOCK OVERLAY */}
       {pocketMode && (
         <div className="fixed inset-0 z-[9999] bg-black flex flex-col items-center justify-center p-10 select-none touch-none">
           <div className="text-8xl mb-12 animate-pulse">🔒</div>
+          <h1 className="text-white font-black text-4xl tracking-tighter italic uppercase mb-12">Pocket Locked</h1>
           <div className="relative h-24 w-full max-w-xs bg-white/5 rounded-[40px] border border-white/10 p-2 flex items-center overflow-hidden">
             <input 
               type="range" min="0" max="100" value={slider} 

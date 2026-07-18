@@ -6,40 +6,68 @@ export function useZones() {
   const [zones, setZones] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchGrid = useCallback(async () => {
-    // 1. Instant Load from IndexedDB
-    const cached = await db.zones_grid.toArray();
-    if (cached.length > 0) {
-      setZones(cached);
+  const fetchAllZonesFromSupabase = async () => {
+    let allData = [];
+    let from = 0;
+    let to = 999;
+    let hasMore = true;
+
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from('zones')
+        .select('id, lat_min, lat_max, lng_min, lng_max, owner_id, revealed')
+        .range(from, to);
+
+      if (error) {
+        console.error("Supabase Grid Fetch Error:", error);
+        return [];
+      }
+
+      if (data && data.length > 0) {
+        allData = [...allData, ...data];
+        from += 1000;
+        to += 1000;
+      } else {
+        hasMore = false;
+      }
+    }
+    return allData;
+  };
+
+  const loadGridData = useCallback(async () => {
+    setLoading(true);
+    try {
+      // 1. Check local IndexedDB (V5) first
+      const localCachedZones = await db.zones_grid.toArray();
+      
+      if (localCachedZones.length > 0) {
+        setZones(localCachedZones);
+        setLoading(false);
+      }
+
+      // 2. Background Sync: Fetch fresh data from Supabase if online
+      if (navigator.onLine) {
+        const freshZones = await fetchAllZonesFromSupabase();
+        if (freshZones.length > 0) {
+          // Update local cache
+          await db.zones_grid.bulkPut(freshZones);
+          setZones(freshZones);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to load tactical grid:", err);
+    } finally {
       setLoading(false);
     }
-
-    if (navigator.onLine) {
-      // 2. Background update from Supabase (Handles 1000+ limit)
-      let allZones = [];
-      let start = 0;
-      while (true) {
-        const { data, error } = await supabase.from('zones').select('*').range(start, start + 999);
-        if (error || !data || data.length === 0) break;
-        allZones = [...allZones, ...data];
-        start += 1000;
-      }
-      
-      if (allZones.length > 0) {
-        await db.zones_grid.bulkPut(allZones);
-        setZones(allZones);
-      }
-    }
-    setLoading(false);
   }, []);
 
-  useEffect(() => { fetchGrid(); }, [fetchGrid]);
+  useEffect(() => {
+    loadGridData();
+  }, [loadGridData]);
 
-  const updateZone = async (zone) => {
-    // UI Update
-    setZones(prev => prev.map(z => z.id === zone.id ? zone : z));
-    // Local DB Update
-    await db.zones_grid.put(zone);
+  const updateZone = async (updatedZone) => {
+    setZones(prev => prev.map(z => z.id === updatedZone.id ? updatedZone : z));
+    await db.zones_grid.put(updatedZone);
   };
 
   return { zones, loading, updateZone };
